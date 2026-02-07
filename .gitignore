@@ -1,3 +1,12 @@
+# ROS2 Bags
+*.mcap
+*.db3
+
+*.json
+
+*.npz
+
+log/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

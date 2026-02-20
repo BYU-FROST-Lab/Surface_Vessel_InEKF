@@ -1,10 +1,11 @@
 # ROS2 Bags
 *.mcap
 *.db3
-
 *.json
 
-*.npz
+/data
+
+figure_data/real_world_convergence_data.pkl
 
 log/
 # Byte-compiled / optimized / DLL files

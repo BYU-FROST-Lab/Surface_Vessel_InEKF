@@ -11,7 +11,7 @@ from tqdm import tqdm
 # Add the project root to the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from helpers.sim_helpers import convert_filter_mus_to_rpy_xyz, compute_position_mae, imu_add_noise, gps_add_noise, heading_add_noise, add_initial_state_noise, plot_cov, plot_figure_3, plot_figure_4, plot_results, plot_results_cov
+from helpers.function_helpers import convert_filter_mus_to_rpy_xyz, compute_position_mae, imu_add_noise, gps_add_noise, heading_add_noise, add_initial_state_noise, plot_cov, plot_figure_3, plot_figure_4, plot_results, plot_results_cov
 from src.core.jitter_buffer import JitterBuffer
 from src.core.image_handler import ImageProcessor
 
@@ -23,30 +23,13 @@ import ahrs # TODO: Add to requirements.txt, used for Madgwick filter
 import math
 
 
-from helpers.sim_params import RealWorldSBGConfigParams
+from helpers.params import RealWorldSBGConfigParams
 
 # from helpers.load_holoocean_ros_types import typestore as holoocean_typestore
 
 import matplotlib.pyplot as plt
 
 from scipy.spatial.transform import Rotation
-
-# from sim_image_handler import image_handler
-# from helpers.holoocean_constants import dist, mtx, unet_filepath, camera_height_sim as camera_height
-
-'''
-Topic: /holoocean/asv0/DVLSensorRange     | Type: holoocean_interfaces/msg/DVLSensorRange 
-Topic: /holoocean/asv0/DVLSensorVelocity  | Type: geometry_msgs/msg/TwistWithCovarianceStamped 
-Topic: /holoocean/asv0/DynamicsSensorIMU  | Type: sensor_msgs/msg/Imu 
-Topic: /holoocean/asv0/DynamicsSensorOdom | Type: nav_msgs/msg/Odometry 
-Topic: /holoocean/asv0/FrontCamera        | Type: sensor_msgs/msg/Image 
-Topic: /holoocean/asv0/GPSSensor          | Type: nav_msgs/msg/Odometry 
-Topic: /holoocean/asv0/IMUSensor          | Type: sensor_msgs/msg/Imu 
-Topic: /holoocean/asv0/IMUSensorBias      | Type: geometry_msgs/msg/TwistWithCovarianceStamped 
-Topic: /holoocean/asv0/LeftCamera         | Type: sensor_msgs/msg/Image 
-Topic: /holoocean/asv0/RightCamera        | Type: sensor_msgs/msg/Image 
-Topic: /holoocean/asv0/RotationSensor     | Type: geometry_msgs/msg/Vector3Stamped 
-'''
 
 plot_images = False
 
@@ -255,6 +238,7 @@ for i in range(len(tracked_rp)):
 horizon_roll_rmse = np.sqrt(np.mean(np.array(horizon_roll_errors)**2))
 horizon_pitch_rmse = np.sqrt(np.mean(np.array(horizon_pitch_errors)**2))
 print(f"Horizon vs SBG EKF - Roll RMSE: {horizon_roll_rmse:.2f}, Pitch RMSE: {horizon_pitch_rmse:.2f}")
+print(f"Horizon vs SBG EKF - Roll STD Dev: {np.std(np.array(horizon_roll_errors)):.2f}, Pitch STD Dev: {np.std(np.array(horizon_pitch_errors)):.2f}")
 
 lw = 3
 
@@ -266,6 +250,8 @@ sns.set_style("whitegrid")
 sns.set_palette("colorblind")
 c = sns.color_palette("colorblind")
 
+COL_WIDTH_IN = 241.53897/72.27
+
 import shutil
 import matplotlib as mpl
 
@@ -273,7 +259,7 @@ cache_dir = mpl.get_cachedir()
 shutil.rmtree(cache_dir)
 
 plt.rcParams['font.family'] = 'serif'
-plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
+plt.rcParams['font.serif'] = ['sans-serif'] + plt.rcParams['font.serif']
 
 from matplotlib.patches import Rectangle
 from matplotlib.patches import ConnectionPatch
@@ -293,7 +279,7 @@ zoomed_lw = 1.5
 # Create a figure with the new small size
 fig, axs = plt.subplots(
     2, 2,
-    figsize=(3.54, 3), # <- Target Figure Size
+    figsize=(COL_WIDTH_IN, 3.3), # <- Target Figure Size
     gridspec_kw={'width_ratios': [3, 1]},
     dpi=300,
     sharex='col' 
@@ -301,14 +287,14 @@ fig, axs = plt.subplots(
 
 # Set a global font size for better consistency in a small figure
 # -------------------------------------------------------------------------
-SMALL_SIZE = 7
-MEDIUM_SIZE = 7
+SMALL_SIZE = 10
+MEDIUM_SIZE = 10
 plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
 plt.rc('axes', titlesize=SMALL_SIZE)     # fontsize of the axes title
 plt.rc('axes', labelsize=SMALL_SIZE)    # fontsize of the x and y labels
 plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
 plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
-plt.rc('legend', fontsize=SMALL_SIZE - 1) # legend font size
+plt.rc('legend', fontsize=SMALL_SIZE-1) # legend font size
 plt.rc('figure', titlesize=MEDIUM_SIZE)  # fontsize of the figure title
 # -------------------------------------------------------------------------
 lw = 2.0  # Line width for plots
@@ -402,7 +388,7 @@ ax2.tick_params(axis='both', which='major', labelsize=SMALL_SIZE, pad=2)
 ax2.xaxis.tick_bottom()
 # ax2.set_title('Estimated Pitch (Full View)', fontsize=MEDIUM_SIZE)
 # ax2.set_xlabel('Time (s)      ', loc='right', fontsize=MEDIUM_SIZE) 
-fig.text(0.5, 0.17, 'Time (s)', ha='center', fontsize=MEDIUM_SIZE)
+fig.text(0.5, 0.175, 'Time (s)', ha='center', fontsize=MEDIUM_SIZE)
 ax2.set_ylabel('Pitch (°)', fontsize=MEDIUM_SIZE, labelpad=0)
 
 # Draw the Zoom Box on ax2 (Rectangle)
@@ -416,7 +402,9 @@ ax2.add_patch(rect_pitch)
 
 # Legend for the main plots
 handles, labels = ax2.get_legend_handles_labels()
-order = [2, 3, 4, 5, 0, 1]
+# order = [2, 3, 4, 5, 0, 1]
+order = [2, 3, 0, 1, 4, 5]
+
 # Use bbox_to_anchor to place the legend outside the subplot or adjust its position
 # fig.legend([handles[idx] for idx in order], [labels[idx] for idx in order], loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=2)
 # fig.legend([handles[idx] for idx in order], [labels[idx] for idx in order], loc='lower center', bbox_to_anchor=(0.5, -0.05), ncol=3, fontsize=SMALL_SIZE, frameon=False)
@@ -442,14 +430,15 @@ fig.legend(
     [handles[idx] for idx in order],
     [labels[idx] for idx in order],
     loc='lower center',
-    bbox_to_anchor=(0.5, 0.0),
+    bbox_to_anchor=(0.5, -0.05),
     ncol=2,
-    prop={'size': SMALL_SIZE},
-    handlelength=3,
-    handleheight=1.25,
+    prop={'size': SMALL_SIZE-1},
+    handlelength=1.5,
+    handletextpad=0.2,
+    handleheight=1.2,
     frameon=False,
-    # Pass the handler map to use your custom class for Line2D objects
-    handler_map={Line2D: HandlerThickLine(numpoints=1)}
+    handler_map={Line2D: HandlerThickLine(numpoints=1)},
+    columnspacing=0.4  # Reduce this value to squeeze columns closer (default is ~2.0)
 )
 
 # Zoomed Pitch Plot (Bottom-Right)
@@ -484,5 +473,5 @@ fig.add_artist(con_bot_p)
 
 
 plt.tight_layout(rect=[0, 0.16, 1, 1], h_pad=0.05, w_pad=0.8) # Added bottom margin for legend, reduced vertical spacing
-plt.savefig('horizon_comparison_test.pdf', format='pdf', bbox_inches='tight')
+plt.savefig('figures/horizon_comparison_test.pdf', format='pdf', bbox_inches='tight', pad_inches=0.01)
 plt.show()

@@ -18,9 +18,10 @@ import warnings
 
 class MEKF:
     # def __init__(self, init_quat, init_xyz, init_vel, first_timestamp=0, est_bias=True, R_orientation_sen=None, init_sigma=sbg_Q, Q=sbg_Q, init_bias=False):
-    def __init__(self, init_sigma=None, Q=None, init_state=None, first_timestamp=0, est_bias=True):   
+    def __init__(self, init_sigma=None, Q=None, init_state=None, first_timestamp=0, est_bias=True, update_rate=200):   
         self.est_bias = est_bias # Can turn of Bias estimation
         self.sys = WAMVASV(Q)
+        self.update_rate = update_rate
                
         # Initialize state, covariance, and noise parameters here
         if init_state is not None:
@@ -87,7 +88,7 @@ class MEKF:
         angular_velocity = imu_measurement.gyro
 
         if self.prev_time is None:
-            dt = 1/200
+            dt = 1/self.update_rate
         else:
             dt = current_time - self.prev_time
         self.prev_time = current_time
@@ -123,7 +124,10 @@ class MEKF:
         
         # Multiply elements of Q by dt and dt^2, as appropriate 
         Qdt = self.sys.Q * dt
-        Qdt[:6,:6] = Qdt[:6,:6] * dt
+        # Qdt[:6,:6] = Qdt[:6,:6] * dt
+
+        Q_mod = 1 # dt/(1/self.update_rate) # For situations where dt is not constant because measurements are dropped
+        Qdt = Qdt * Q_mod # For situations where dt is not constant because measurements are dropped
         
         # Update Covarariance
         sigma_bar = self.expA @ self.sigma @ self.expA.T + Qdt
@@ -243,7 +247,9 @@ class MEKF:
 
         # make our special measurement covariance
         Rot = self.mu[:3,:3]
-        S = H @ self.sigma @ H.T + Rot.T @ gps_measurement.position_cov @ Rot # FIXME: Does this need to be rotated?
+        # S = H @ self.sigma @ H.T + Rot.T @ gps_measurement.position_cov @ Rot # FIXME: Does this need to be rotated?
+        S = H @ self.sigma @ H.T + gps_measurement.position_cov # FIXME: Does this need to be rotated?
+
 
         K = self.sigma @ H.T @ inv(S) # Kalman gain
 
@@ -260,6 +266,76 @@ class MEKF:
         
         return
         # self.publish_state()
+
+    # def gps_callback_qekf(self, x, y, alt, R_pos_sensor):
+
+    #     z = np.array([x, y, alt])
+        
+    #     zero = np.zeros((3,3))
+    #     I = np.eye(3)
+
+    #     H = np.block([[zero, zero, I, zero, zero]]) # Measurement matrix, measurement is xyz for now
+    #     z_hat = self.mu[:3,4] # Predicted measurement
+    #     V = z - z_hat # Innovation
+
+    #     # make our special measurement covariance
+    #     R = self.mu[:3,:3]
+    #     S = H @ self.sigma @ H.T + R.T @ R_pos_sensor @ R # FIXME: Does this need to be rotated?
+    #     S = H @ self.sigma @ H.T + R.T @ R_pos_sensor @ R # FIXME: Does this need to be rotated?
+
+    #     K = self.sigma @ H.T @ inv(S) # Kalman gain
+
+    #     K_V = K @ V
+        
+    #     # Update the state
+    #     self.mus[-1][:3,:3] = self.mu[:3,:3] @ expm( self.sys.cross( K_V[:3] ) )
+    #     self.mus[-1][:3,3] += K_V[3:6] # update velocity
+    #     self.mus[-1][:3,4] += K_V[6:9] # update position
+    #     if self.sim_bias:
+    #         self.biases[-1] = self.bias + ( K_V[9:] ).reshape((2,3)) # update bias
+        
+    #     self.sigmas[-1] = (np.eye(15) - K @ H) @ self.sigma # Update the covariance
+        
+    #     return
+    #     # self.publish_state()
+
+    def update_depth(self, z, sim_bias=True):
+        """Runs correction step of Quaternion-EKF. (Multiplicative EKF)
+
+        Args:
+            z (m ndarray): measurement at this step, corresponds to mu[2,4]
+
+        Returns:
+            mu    (nxn ndarray) : Corrected state
+            sigma (nxn ndarray) : Corrected covariances"""
+        # make H matrices
+        zero    = np.zeros((1,3))
+        I       = np.eye(3)    
+        H = np.block([zero, zero, I[-1,:], zero, zero])
+        # make innovation
+        z_hat = self.mu[2,4]
+        V = z - z_hat
+
+        # make our special measurement covariance
+        R = self.mu[:3,:3] # Rotation Matrix
+        meas_cov = inv(H@self.sigma@H.T + self.sys.R[-1,-1])
+
+        K = self.sigma @ H.T @ meas_cov
+        K_state = K[:9]
+        K_bias = K[9:]
+
+        K_V = (K * V).flatten()
+        # Update the state
+        self.mus[-1][:3,:3] = self.mu[:3,:3] @ expm( self.sys.cross( K_V[:3] ) )
+        self.mus[-1][:3,3] += K_V[3:6]
+        self.mus[-1][:3,4] += K_V[6:9]
+        # Update the bias'
+        if sim_bias:
+            self.biass[-1] = self.bias + ( K_V[9:] ).reshape((2,3))
+        # Update the covariance
+        self.sigmas[-1] = (np.eye(15) - K @ H) @ self.sigma
+
+        return self.mu, self.sigma
 
 
     def image_callback_orig(self, msg):
@@ -419,6 +495,14 @@ class MEKF:
         # measurement covariance
         R_orientation_sensor = np.diag([rp_measurement.roll_var, rp_measurement.pitch_var]) # **2
         S = H @ self.sigma @ H.T + R_orientation_sensor
+        
+        # d2 = V.T @ inv(S) @ V
+        # if d2 > 16: # 95% confidence interval for 2D chi-squared
+        #     print(f"Outlier detected in horizon measurement with Mahalanobis distance squared: {d2:.2f} at timestep {self.timestamps[-1]-self.timestamps[0]:.2f}s")
+        #     return
+
+         # + self.sys.R[-1, -1]
+        
         K = self.sigma @ H.T @ inv(S) # Kalman gain
 
         K_V = K @ V

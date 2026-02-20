@@ -1,3 +1,4 @@
+from copyreg import pickle
 import math
 import numpy as np
 from matplotlib import pyplot as plt
@@ -9,7 +10,6 @@ try:
 except ImportError:
     pass 
 
-
 import seaborn as sns
 import matplotlib
 import matplotlib.pyplot as plt
@@ -17,7 +17,7 @@ import matplotlib.gridspec as gridspec
 import matplotlib.lines as lines
 import pandas as pd
 
-
+from matplotlib.lines import Line2D
 
 def plot_figure_3(inekf_mae, mekf_mae, inekf_full_mae, show_plot=True):
     matplotlib.rc("pdf", fonttype=42)
@@ -28,10 +28,10 @@ def plot_figure_3(inekf_mae, mekf_mae, inekf_full_mae, show_plot=True):
 
     # Make sure you install times & clear matplotlib cache
     # https://stackoverflow.com/a/49884009
-    plt.rcParams["font.family"] = "Times New Roman"
+    plt.rcParams["font.family"] = "sans-serif"
     plt.rcParams["mathtext.fontset"] = "stix"
 
-    textwidth_pt = 505.89  # Replace with your actual \textwidth value in points
+    textwidth_pt = 495.0779 #505.89  # Replace with your actual \textwidth value in points
     textwidth_inches = textwidth_pt / 72.27
 
     states = ["Pos (XY)", "Pos (Z)", "Roll", "Pitch", "Yaw"] # Updated states for XY, Roll, Pitch, Yaw
@@ -108,7 +108,7 @@ def plot_figure_3(inekf_mae, mekf_mae, inekf_full_mae, show_plot=True):
 
     # Adjust subplot spacing if needed (for left/right margins)
     # fig.subplots_adjust(left=0.07, right=0.98)
-    custom_colors = ["blue", "red", "green"]
+    # custom_colors = ["blue", "red", "green"]
 
     # Adjust subplot spacing
     # fig.subplots_adjust(left=0.068, right=0.98, wspace=0.3)  # Adjust left margin & spacing between plots
@@ -121,17 +121,28 @@ def plot_figure_3(inekf_mae, mekf_mae, inekf_full_mae, show_plot=True):
         ax.yaxis.labelpad = 0 # Adjust this value to control the padding
         ax.yaxis.grid(True, linestyle='-', linewidth=1, color='gray')
         state_df = error_df_list[i]
+        
+        show_legend = True if i == 0 else False
 
-        # Set custom colors using palette argument
-        if i == 0:
-            boxplot = sns.boxplot(x='Filter', y='Error Value', hue='Filter', data=state_df, linewidth=1, ax=ax,
-                            hue_order=filters, dodge=0.0, width=0.9, showfliers=False, palette=custom_colors)
-        else: 
-            boxplot = sns.boxplot(x='Filter', y='Error Value', data=state_df, linewidth=1, ax=ax,
-                            hue_order=filters, dodge=0.0, width=0.9, showfliers=False, palette=custom_colors)
+        sns.boxplot(
+            x='Filter', 
+            y='Error Value', 
+            hue='Filter',
+            data=state_df, 
+            linewidth=1, 
+            ax=ax,
+            hue_order=filters, 
+            dodge=False, 
+            width=0.9, 
+            showfliers=False, 
+            legend=show_legend
+        )
 
         # Fix tick label warning: Explicitly set tick positions
-        ax.set_ylim(0.2, 2)
+        if state_name in ["Roll", "Pitch", "Yaw"]:
+            ax.set_ylim(0, 1)
+        else:
+            ax.set_ylim(0.2, 2)
         ax.set_yticks(ax.get_yticks())  # Ensures labels align correctly
         ax.tick_params(axis='y', which='major', pad=-2) # Adjust the 'pad' value
         ax.set_yticklabels([f'{y:.1f}' for y in ax.get_yticks()], fontsize=8)
@@ -174,15 +185,18 @@ def plot_figure_4(inekf_5hz_conv_trajectories, inekf_no_horizon_trajectories, me
 
     # Make sure you install times & clear matplotlib cache
     # https://stackoverflow.com/a/49884009
-    plt.rcParams["font.family"] = "Times New Roman"
+    plt.rcParams["font.family"] = "sans-serif"
     plt.rcParams["mathtext.fontset"] = "stix"
 
-    textwidth_pt = 505.89  # Replace with your actual \textwidth value in points
+    textwidth_pt = 495.0779 #505.89  # Replace with your actual \textwidth value in points
     textwidth_inches = textwidth_pt / 72.27
 
     filter_names = ["MEKF", "INEKF"]
     # state_names = ["Roll", "Pitch", "Yaw", "X", "Y", "Z"]
-    state_names = ["Roll (deg)", "Pitch (deg)", "Yaw (deg)", "X (m)", "Y (m)", "Z (m)"]
+    # state_names = ["Roll (deg)", "Pitch (deg)", "Yaw (deg)", "X (m)", "Y (m)", "Z (m)"]
+    state_names = ["Roll (°)", "Pitch (°)", "Yaw (°)", "X (m)", "Y (m)", "Z (m)"]
+
+    
     # state_names = ["Roll", "Pitch", "Yaw", "Vel X", "Vel Y", "Vel Z", "X", "Y", "Z"]
 
     num_filters = len(filter_names)
@@ -313,7 +327,7 @@ def plot_figure_4(inekf_5hz_conv_trajectories, inekf_no_horizon_trajectories, me
             ax_yaw.tick_params(axis='y', which='major', pad=-3)
             ax_yaw.set_xlim(left=None, right=2000)
 
-    fig.text(0.001, 0.7, 'With Horizon Meas. (6 Hz)', va='center', rotation='vertical', fontsize=8)#, fontweight='bold')
+    fig.text(0.001, 0.7, 'With Horizon Meas. (4 Hz)', va='center', rotation='vertical', fontsize=8)#, fontweight='bold')
     fig.text(0.001, 0.25, 'Without Horizon Meas.', va='center', rotation='vertical', fontsize=8)#, fontweight='bold')
 
     fig.text(0.5, 0.01, 'Time (s)', ha='center', fontsize=8)
@@ -400,9 +414,9 @@ def heading_add_noise(heading_measurement):
     )
     return noisy_heading_measurement
 
-def gps_add_noise(gps_measurement):
+def gps_add_noise(gps_measurement, scaler=1.0):
     pos_cov = gps_measurement.position_cov
-    std_devs = np.sqrt(np.diag(pos_cov))
+    std_devs = np.sqrt(np.diag(pos_cov)) * scaler
     noise = np.random.normal(0, std_devs)
     noisy_x = gps_measurement.x + noise[0]
     noisy_y = gps_measurement.y + noise[1]
@@ -435,7 +449,7 @@ def imu_add_noise(imu_measurement, Q, current_random_walk=None, delta_t=0.005):
     """
 
     # Extract standard deviations from the diagonal of Q
-    std_devs = np.sqrt(np.diag(Q))
+    std_devs = np.sqrt(np.diag(Q))*np.sqrt(delta_t) # Scale by sqrt of delta_t for proper noise scaling in discrete time
 
     # Gyro noise
     gyro_noise = np.random.normal(0, std_devs[0:3])
@@ -455,8 +469,8 @@ def imu_add_noise(imu_measurement, Q, current_random_walk=None, delta_t=0.005):
     # noisy_accel = imu_measurement.accel + accel_noise + current_random_walk[3:6]
 
     # Debugging stuff right now
-    noisy_gyro = imu_measurement.gyro + np.random.normal(0, std_devs[0:3]/10) + current_random_walk[0:3]  # TODO: Turn on once simulation is fixed
-    noisy_accel = imu_measurement.accel + np.random.normal(0, std_devs[3:6]/10) + current_random_walk[3:6]
+    noisy_gyro = imu_measurement.gyro + np.random.normal(0, std_devs[0:3]) + current_random_walk[0:3]  # TODO: Turn on once simulation is fixed
+    noisy_accel = imu_measurement.accel + np.random.normal(0, std_devs[3:6]) + current_random_walk[3:6]
 
     # Create new ImuMeasurement with noisy data
     noisy_imu_measurement = ImuMeasurement(
@@ -467,6 +481,29 @@ def imu_add_noise(imu_measurement, Q, current_random_walk=None, delta_t=0.005):
     )
 
     return noisy_imu_measurement, current_random_walk
+
+def convert_gps_to_xyz(lat, lon, ref_latitude_deg=21.596611, ref_longitude_deg=-158.106222):
+    """
+    Convert latitude and longitude to local Cartesian coordinates (x, y).
+    """
+    # Convert degrees to radians
+    lat_rad = math.radians(lat)
+    lon_rad = math.radians(lon)
+    ref_lat_rad = math.radians(ref_latitude_deg)
+    ref_lon_rad = math.radians(ref_longitude_deg)
+    
+    # Constants
+    earth_radius = 6378137.0  # Earth's radius in meters
+    
+    # Calculate deltas
+    delta_lat = lat_rad - ref_lat_rad
+    delta_lon = lon_rad - ref_lon_rad
+    
+    # Approximate x and y using a local tangent plane
+    x = delta_lon * earth_radius * math.cos(ref_lat_rad)  # Longitude scaling by cos(lat)
+    y = delta_lat * earth_radius                          # Latitude scaling
+    
+    return x, y
 
 def convert_filter_mus_to_rpy_xyz(filter):
     """
@@ -555,29 +592,6 @@ def compute_position_mae(filter_t_rpyxyz, gt_poses):
 
     return mean_error_xy, mean_error_z, mean_error_rpy
 
-def convert_gps_to_xyz(lat, lon, ref_latitude_deg=40.246105, ref_longitude_deg=-111.647000):
-    """
-    Convert latitude and longitude to local Cartesian coordinates (x, y).
-    """
-    # Convert degrees to radians
-    lat_rad = math.radians(lat)
-    lon_rad = math.radians(lon)
-    ref_lat_rad = math.radians(ref_latitude_deg)
-    ref_lon_rad = math.radians(ref_longitude_deg)
-    
-    # Constants
-    earth_radius = 6378137.0  # Earth's radius in meters
-    
-    # Calculate deltas
-    delta_lat = lat_rad - ref_lat_rad
-    delta_lon = lon_rad - ref_lon_rad
-    
-    # Approximate x and y using a local tangent plane
-    x = delta_lon * earth_radius * math.cos(ref_lat_rad)  # Longitude scaling by cos(lat)
-    y = delta_lat * earth_radius                          # Latitude scaling
-    
-    return x, y
-
 def plot_imu_accel_gyro(imu_vals, gyro_vals):
     fig, axs = plt.subplots(4, 1, figsize=(10, 12))
     # Plot timesteps to show gaps in measurements
@@ -659,7 +673,7 @@ def fuse_sbg_ekf_msgs(sbg_attitude, sbg_position):
                 closest_att = before
             else:
                 closest_att = after
-        sbg_fused.append((nav_time, closest_att[1], closest_att[2], closest_att[3], nav[1], nav[2], nav[3], nav[4], nav[5], nav[6], closest_att[4], closest_att[5], closest_att[6], nav[7], nav[8], nav[9], nav[10], nav[11], nav[12]))
+        sbg_fused.append((nav_time, closest_att[1], closest_att[2], closest_att[3], nav[1], nav[2], nav[3], nav[4], nav[5], nav[6]))
 
     sbg_fused = np.array(sbg_fused)
     for msg in sbg_fused:
@@ -723,6 +737,196 @@ def plot_data(title="Add Title", data=[], data_labels=[]):
     plt.ylabel('Value')
     plt.legend()
     plt.grid()
+
+def plot_results_comparison_gt_cov(filter1, filter2, filter3, title="", show=True, gps_timestamps=None, gps_altitude=None, body_frame_vel=False, imu_rpy=None, heading_measurements=None, rp_meas=None, filter1_name="1", filter2_name="2", filter3_name="3"):
+    # if gps_timestamps is not None:
+        # gps_timestamps -= gps_timestamps[0]
+
+    # if rp_meas is not None:
+        # rp_meas[:,0] -= rp_meas[0,0]
+
+    # if heading_measurements is not None:
+        # heading_measurements[:,0] -= heading_measurements[0,0]
+
+    mus1 = np.array(filter1.mus)
+    sigmas1 = np.array(filter1.sigmas)
+    timestamps1 = np.array(filter1.timestamps)
+    first_timestamp = timestamps1[0]
+    timestamps1 = timestamps1 - first_timestamp  # Normalize time to start at 0
+    covariances1 = np.array(filter1.sigmas)[:, :9, :9] 
+
+    # Attitude Sigmas (Roll, Pitch, Yaw) - Indices 0, 1, 2
+    att_vars1 = covariances1[:, 0:3, 0:3].diagonal(axis1=1, axis2=2)
+    att_sigma1 = np.sqrt(att_vars1)
+    
+    # Velocity Sigmas (VX, VY, VZ) - Indices 3, 4, 5
+    vel_vars1 = covariances1[:, 3:6, 3:6].diagonal(axis1=1, axis2=2)
+    vel_sigma1 = np.sqrt(vel_vars1)
+    
+    # Position Sigmas (X, Y, Z) - Indices 6, 7, 8
+    pos_vars1 = covariances1[:, 6:9, 6:9].diagonal(axis1=1, axis2=2)
+    pos_sigma1 = np.sqrt(pos_vars1)
+
+
+    mus2 = np.array(filter2.mus)
+    sigmas2 = np.array(filter2.sigmas)
+    timestamps2 = np.array(filter2.timestamps)
+    timestamps2 = timestamps2 - first_timestamp  # Normalize time to start at 0
+    covariances2 = np.array(filter2.sigmas)[:, :9, :9] 
+
+    # Attitude Sigmas (Roll, Pitch, Yaw) - Indices 0, 1, 2
+    att_vars2 = covariances2[:, 0:3, 0:3].diagonal(axis1=1, axis2=2)
+    att_sigma2 = np.sqrt(att_vars2)
+    
+    # Velocity Sigmas (VX, VY, VZ) - Indices 3, 4, 5
+    vel_vars2 = covariances2[:, 3:6, 3:6].diagonal(axis1=1, axis2=2)
+    vel_sigma2 = np.sqrt(vel_vars2)
+    
+    # Position Sigmas (X, Y, Z) - Indices 6, 7, 8
+    pos_vars2 = covariances2[:, 6:9, 6:9].diagonal(axis1=1, axis2=2)
+    pos_sigma2 = np.sqrt(pos_vars2)
+
+
+    mus3 = np.array(filter3.mus)
+    sigmas3 = np.array(filter3.sigmas)
+    timestamps3 = np.array(filter3.timestamps)
+    timestamps3 = timestamps3 - first_timestamp  # Normalize time to start at 0
+    
+    if gps_timestamps is not None:
+        gps_timestamps = gps_timestamps - first_timestamp
+
+    if rp_meas is not None:
+        rp_meas[:,0] -= first_timestamp
+
+    if heading_measurements is not None:
+        heading_measurements[:,0] -= first_timestamp
+
+    # Plot the results
+    fig, axs = plt.subplots(3, 3)
+    fig.suptitle(title)
+
+    error_fill_kwargs1 = {'alpha': 0.2, 'color': 'red', 'label': '$\pm 1\sigma$ Bound 1'}
+    error_fill_kwargs2 = {'alpha': 0.2, 'color': 'blue', 'label': '$\pm 1\sigma$ Bound 2'}
+
+    # plot xyz position
+    axs[0, 0].plot(timestamps1, mus1[:, 0, 4], marker='x', linestyle='-', markersize=3, color='r', label=filter1_name)
+    axs[0, 0].plot(timestamps2, mus2[:, 0, 4], marker='x', linestyle='-', markersize=3, color='b', label=filter2_name)
+    axs[0, 0].plot(timestamps3, mus3[:, 0, 4], marker='x', linestyle='-', markersize=3, color='g', label=filter3_name)
+    axs[0, 0].fill_between(timestamps1, mus1[:, 0, 4] - pos_sigma1[:, 0], mus1[:, 0, 4] + pos_sigma1[:, 0], **error_fill_kwargs1)
+    axs[0, 0].fill_between(timestamps2, mus2[:, 0, 4] - pos_sigma2[:, 0], mus2[:, 0, 4] + pos_sigma2[:, 0], **error_fill_kwargs2)
+
+    axs[0, 0].set_title('x')
+
+    axs[1, 0].plot(timestamps1, mus1[:, 1, 4], marker='x', linestyle='-', markersize=3, color='r', label=filter1_name)
+    axs[1, 0].plot(timestamps2, mus2[:, 1, 4], marker='x', linestyle='-', markersize=3, color='b', label=filter2_name)
+    axs[1, 0].plot(timestamps3, mus3[:, 1, 4], marker='x', linestyle='-', markersize=3, color='g', label=filter3_name)
+    axs[1, 0].fill_between(timestamps1, mus1[:, 1, 4] - pos_sigma1[:, 1], mus1[:, 1, 4] + pos_sigma1[:, 1], **error_fill_kwargs1)
+    axs[1, 0].fill_between(timestamps2, mus2[:, 1, 4] - pos_sigma2[:, 1], mus2[:, 1, 4] + pos_sigma2[:, 1], **error_fill_kwargs2)
+    axs[1, 0].set_title('y')
+
+    axs[2, 0].plot(timestamps1, mus1[:, 2, 4], marker='x', linestyle='-', markersize=3, color='r', label=filter1_name)
+    axs[2, 0].plot(timestamps2, mus2[:, 2, 4], marker='x', linestyle='-', markersize=3, color='b', label=filter2_name)
+    axs[2, 0].plot(timestamps3, mus3[:, 2, 4], marker='x', linestyle='-', markersize=3, color='g', label=filter3_name)
+    
+    axs[2, 0].fill_between(timestamps1, mus1[:, 2, 4] - pos_sigma1[:, 2], mus1[:, 2, 4] + pos_sigma1[:, 2], **error_fill_kwargs1)
+    axs[2, 0].fill_between(timestamps2, mus2[:, 2, 4] - pos_sigma2[:, 2], mus2[:, 2, 4] + pos_sigma2[:, 2], **error_fill_kwargs2)
+    axs[2, 0].set_title('z')
+
+    if gps_altitude is not None:
+        # axs[2, 0].plot(gps_timestamps, gps_altitude, marker='x', markersize=3, color='g', label='GPS Measurement')
+        gps_altitudes = np.array(gps_altitude)
+        axs[0, 0].scatter(gps_timestamps, gps_altitude[:,0], color='g', label='GPS Measurement')
+        axs[1, 0].scatter(gps_timestamps, gps_altitude[:,1], color='g', label='GPS Measurement')
+        axs[2, 0].scatter(gps_timestamps, gps_altitude[:,2], color='g', label='GPS Measurement')
+
+    R = Rotation.from_matrix(mus1[:, 0:3, 0:3])
+    rpy = R.as_euler('xyz')
+    rpy2 = Rotation.from_matrix(mus2[:, 0:3, 0:3]).as_euler('xyz')
+    rpy3 = Rotation.from_matrix(mus3[:, 0:3, 0:3]).as_euler('xyz')
+
+    axs[0, 1].plot(timestamps1, np.rad2deg(rpy[:, 0]), marker='x', linestyle='-', markersize=3, color='r')
+    if imu_rpy is not None:
+        axs[0, 1].plot(imu_rpy[:, 0], (imu_rpy[:, 1]), marker='x', linestyle='-', markersize=3, color='b', label='IMU RPY')
+    axs[0, 1].plot(timestamps2, np.rad2deg(rpy2[:, 0]), marker='x', linestyle='-', markersize=3, color='b')
+    axs[0, 1].plot(timestamps3, np.rad2deg(rpy3[:, 0]), marker='x', linestyle='-', markersize=3, color='g', label=filter3_name)
+    if rp_meas is not None:
+        axs[0, 1].scatter(rp_meas[:,0], rp_meas[:,1], color='g', label='Image Roll Measurement')
+
+    axs[0, 1].fill_between(timestamps1, np.rad2deg(rpy[:, 0]) - np.rad2deg(att_sigma1[:, 0]), np.rad2deg(rpy[:, 0]) + np.rad2deg(att_sigma1[:, 0]), **error_fill_kwargs1)
+    axs[0, 1].fill_between(timestamps2, np.rad2deg(rpy2[:, 0]) - np.rad2deg(att_sigma2[:, 0]), np.rad2deg(rpy2[:, 0]) + np.rad2deg(att_sigma2[:, 0]), **error_fill_kwargs2)
+    
+    axs[0, 1].set_title('roll')
+    axs[1, 1].plot(timestamps1, np.rad2deg(rpy[:, 1]), marker='x', linestyle='-', markersize=3, color='r')
+    axs[1, 1].plot(timestamps2, np.rad2deg(rpy2[:, 1]), marker='x', linestyle='-', markersize=3, color='b')
+    axs[1, 1].plot(timestamps3, np.rad2deg(rpy3[:, 1]), marker='x', linestyle='-', markersize=3, color='g', label=filter3_name)
+    if imu_rpy is not None:
+        axs[1, 1].plot(imu_rpy[:, 0], (imu_rpy[:, 2]), marker='x', linestyle='-', markersize=3, color='b', label='IMU RPY')
+    if rp_meas is not None:
+        axs[1, 1].scatter(rp_meas[:,0], rp_meas[:,2], color='g', label='Image Pitch Measurement')
+
+    axs[1, 1].fill_between(timestamps1, np.rad2deg(rpy[:, 1]) - np.rad2deg(att_sigma1[:, 1]), np.rad2deg(rpy[:, 1]) + np.rad2deg(att_sigma1[:, 1]), **error_fill_kwargs1)
+    axs[1, 1].fill_between(timestamps2, np.rad2deg(rpy2[:, 1]) - np.rad2deg(att_sigma2[:, 1]), np.rad2deg(rpy2[:, 1]) + np.rad2deg(att_sigma2[:, 1]), **error_fill_kwargs2)
+    
+    axs[1, 1].set_title('pitch')
+    axs[2, 1].plot(timestamps1, np.rad2deg(rpy[:, 2]), marker='x', linestyle='-', markersize=3, color='r')
+    axs[2, 1].plot(timestamps2, np.rad2deg(rpy2[:, 2]), marker='x', linestyle='-', markersize=3, color='b')
+    axs[2, 1].plot(timestamps3, np.rad2deg(rpy3[:, 2]), marker='x', linestyle='-', markersize=3, color='g', label=filter3_name)
+    if imu_rpy is not None:
+        axs[2, 1].plot(imu_rpy[:, 0], (imu_rpy[:, 3]), marker='x', linestyle='-', markersize=3, color='b', label='IMU RPY')
+        axs[2, 1].legend()
+    if heading_measurements is not None:        
+        axs[2, 1].scatter(heading_measurements[:,0], heading_measurements[:,1], color='g', label='Heading Measurement')
+    
+    axs[2, 1].fill_between(timestamps1, np.rad2deg(rpy[:, 2]) - np.rad2deg(att_sigma1[:, 2]), np.rad2deg(rpy[:, 2]) + np.rad2deg(att_sigma1[:, 2]), **error_fill_kwargs1)
+    axs[2, 1].fill_between(timestamps2, np.rad2deg(rpy2[:, 2]) - np.rad2deg(att_sigma2[:, 2]), np.rad2deg(rpy2[:, 2]) + np.rad2deg(att_sigma2[:, 2]), **error_fill_kwargs2)
+    axs[2, 1].set_title('yaw')
+
+    # Plot velocities
+    velocities = mus1[:, 0:3, 3]
+    velocities2 = mus2[:, 0:3, 3]
+    velocities3 = mus3[:, 0:3, 3]
+    if body_frame_vel:
+        rotation_matrices = mus1[:, 0:3, 0:3]
+        # Transform world-frame velocities into the body frame: v_body = Rᵀ * v_world
+        velocities = np.einsum('ijk,ik->ij', rotation_matrices.transpose(0, 2, 1), velocities)
+
+    axs[0, 2].plot(timestamps1, velocities[:, 0], marker='x', linestyle='-', markersize=3, color='r')
+    axs[0, 2].plot(timestamps2, velocities2[:, 0], marker='x', linestyle='-', markersize=3, color='b')
+    axs[0, 2].plot(timestamps3, velocities3[:, 0], marker='x', linestyle='-', markersize=3, color='g', label=filter3_name)
+    axs[0, 2].fill_between(timestamps1, velocities[:, 0] - vel_sigma1[:, 0], velocities[:, 0] + vel_sigma1[:, 0], **error_fill_kwargs1)
+    axs[0, 2].fill_between(timestamps2, velocities2[:, 0] - vel_sigma2[:, 0], velocities2[:, 0] + vel_sigma2[:, 0], **error_fill_kwargs2)
+
+    axs[0, 2].set_title('vx')
+    axs[1, 2].plot(timestamps1, velocities[:, 1], marker='x', linestyle='-', markersize=3, color='r')
+    axs[1, 2].plot(timestamps2, velocities2[:, 1], marker='x', linestyle='-', markersize=3, color='b')
+    axs[1, 2].plot(timestamps3, velocities3[:, 1], marker='x', linestyle='-', markersize=3, color='g', label=filter3_name)
+    
+    axs[1, 2].fill_between(timestamps1, velocities[:, 1] - vel_sigma1[:, 1], velocities[:, 1] + vel_sigma1[:, 1], **error_fill_kwargs1)
+    axs[1, 2].fill_between(timestamps2, velocities2[:, 1] - vel_sigma2[:, 1], velocities2[:, 1] + vel_sigma2[:, 1], **error_fill_kwargs2)
+    axs[1, 2].set_title('vy')
+
+    axs[2, 2].plot(timestamps1, velocities[:, 2], marker='x', linestyle='-', markersize=3, color='r')
+    axs[2, 2].plot(timestamps2, velocities2[:, 2], marker='x', linestyle='-', markersize=3, color='b')
+    axs[2, 2].plot(timestamps3, velocities3[:, 2], marker='x', linestyle='-', markersize=3, color='g', label=filter3_name)
+    axs[2, 2].fill_between(timestamps1, velocities[:, 2] - vel_sigma1[:, 2], velocities[:, 2] + vel_sigma1[:, 2], **error_fill_kwargs1)
+    axs[2, 2].fill_between(timestamps2, velocities2[:, 2] - vel_sigma2[:, 2], velocities2[:, 2] + vel_sigma2[:, 2], **error_fill_kwargs2)
+    axs[2, 2].set_title('vz')
+
+    for ax in axs.flat:
+        ax.grid(True)
+    axs[0, 0].legend()    
+
+    # Handling pass by reference instead of value, need to add back the first timestamp
+    # timestamps = timestamps + first_timestamp  # Normalize time to start at 0
+    # gt_data[:, 0] = gt_data[:, 0] - timestamps[0] #gt_data[0, 0]  # Normalize GT time to start at 0
+    if gps_timestamps is not None:
+        gps_timestamps += first_timestamp
+    if rp_meas is not None:
+        rp_meas[:,0] += first_timestamp
+    if heading_measurements is not None:
+        heading_measurements[:,0] += first_timestamp
+    if show:
+        plt.show()
 
 def plot_results_cov(filter, gt_data=None, title="", show=True, gps_timestamps=None, 
                  gps_altitude=None, body_frame_vel=False, imu_rpy=None, 
@@ -1038,6 +1242,185 @@ def plot_results(filter, gt_data=None, title="", show=True, gps_timestamps=None,
 
     if show:
         plt.show()
+
+#SBG InEKF
+#SBG MEKF
+#SBG InEKF Full Pose
+#OAK InEKF
+#OAK MEKF
+#OAK InEKF Full Pose
+
+# def plot_figure_5(inEKF_sbg_full_traj, MEKF_sbg_full_traj, inEKF_sbg_full_pose_full_traj, inEKF_oak_full_traj, MEKF_oak_full_traj, inEKF_oak_full_pose_full_traj, gt_poses, show_plot=True):
+#     # Metrics are mean, std, and max of xy position error, z position error, roll error, pitch error, and yaw error
+#     sbg_inekf_metrics = get_filter_error_metrics(inEKF_sbg_full_traj, gt_poses)
+#     sbg_mekf_metrics = get_filter_error_metrics(MEKF_sbg_full_traj, gt_poses)
+#     sbg_inekf_full_pose_metrics = get_filter_error_metrics(inEKF_sbg_full_pose_full_traj, gt_poses)
+#     oak_inekf_metrics = get_filter_error_metrics(inEKF_oak_full_traj, gt_poses)
+#     oak_mekf_metrics = get_filter_error_metrics(MEKF_oak_full_traj, gt_poses)
+#     oak_inekf_full_pose_metrics = get_filter_error_metrics(inEKF_oak_full_pose_full_traj, gt_poses)
+
+def plot_figure_5_bar_graph(df, show_plot=True):
+    # --- Style Setup ---
+    plt.rc("pdf", fonttype=42)
+    sns.set_context("paper")
+    sns.set_style("whitegrid")
+    
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["mathtext.fontset"] = "stix"
+
+    # % The column width is: 241.53897pt
+    # % The total text width is: 495.07794pt
+    textwidth_pt = 495.0779
+    textwidth_inches = textwidth_pt / 72.27
+    
+    states = ["Pos (XY)", "Pos (Z)", "Roll", "Pitch", "Yaw"]
+    csv_map = {
+        "Pos (XY)": ["pos_mean", "pos_std", "pos_max"],
+        "Pos (Z)": ["z_mean", "z_std", "z_max"],
+        "Roll": ["roll_mean", "roll_std", "roll_max"],
+        "Pitch": ["pitch_mean", "pitch_std", "pitch_max"],
+        "Yaw": ["yaw_mean", "yaw_std", "yaw_max"]
+    }
+
+    # Filter names for the legend
+    filter_display_names = [
+        "SBG InEKF", "SBG MEKF", "SBG InEKF FO", 
+        "OAK InEKF", "OAK MEKF", "OAK InEKF FO"
+    ]
+    colors = sns.color_palette("colorblind", n_colors=len(filter_display_names))
+
+    # --- Create Figure & GridSpec ---
+    # Increased height slightly to accommodate the legend underneath
+    fig = plt.figure(figsize=(textwidth_inches, 2.8)) 
+    gs = gridspec.GridSpec(1, 6, figure=fig, width_ratios=[1, 1.01, 0.05, 1, 1, 1]) 
+    axes = [fig.add_subplot(gs[0, i]) for i in [0, 1, 3, 4, 5]]
+
+    for i, state_name in enumerate(states):
+        ax = axes[i]
+        cols = csv_map[state_name]
+        
+        means = df[cols[0]].values
+        stds = df[cols[1]].values
+        maxs = df[cols[2]].values
+        x_pos = np.arange(len(filter_display_names))
+
+        # Plot Mean Bars + Std Dev Error Bars
+        ax.bar(x_pos, means, yerr=stds, capsize=2, color=colors, 
+               edgecolor='black', linewidth=0.5, alpha=0.8)
+        
+        # Plot Max Error Markers
+        ax.scatter(x_pos, maxs, color='red', marker='x', s=12, linewidth=0.7, zorder=3)
+
+        # Title and Formatting
+        ax.set_title(state_name, fontsize=10, fontweight='bold')
+        ax.set_xticks([]) 
+        ax.yaxis.grid(True, linestyle='-', linewidth=0.5, color='lightgray')
+        
+        # Axis Scaling & Labels
+        if state_name in ["Roll", "Pitch", "Yaw"]:
+            ax.set_ylim(0, 3.0)
+            
+            # 1. Define all positions where you want a "tick" line
+            tick_positions = np.arange(0, 3.5, 0.5)
+            
+            # 2. Create labels: only show the number if it's an integer, otherwise ""
+            # We use % 1 == 0 to check if the number is a whole integer
+            tick_labels = [f"{int(x)}" if x % 1 == 0 else "" for x in tick_positions]
+            
+            ax.set_yticks(tick_positions)
+            ax.set_yticklabels(tick_labels)
+            if i == 2:
+                ax.set_ylabel('degrees', fontsize=10)
+        else:
+            # Position scaling (adjust if your max position error is > 6m)
+            ax.set_ylim(0, 5.5) 
+            if i == 0:
+                ax.set_ylabel('meters', fontsize=10)
+
+        ax.tick_params(axis='y', labelsize=10, pad=1)
+
+    # --- Legend Construction ---
+    # Create colored patches for filters
+    # --- Updated Legend Elements ---
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor=colors[j], label=filter_display_names[j], edgecolor='black', linewidth=0.7) 
+        for j in range(len(filter_display_names))
+    ]
+
+    # When you call the legend, you can control the patch shape/size:
+    # ax.legend(
+    #     handles=legend_elements, 
+    #     loc='lower center', 
+    #     ncol=3, 
+    #     handlelength=1.5, # Controls the width of the patch
+    #     handleheight=1.0, # Controls the height of the patch
+    #     frameon=False
+    # )
+    # legend_elements = [Line2D([0], [0], color=colors[j], lw=5, label=filter_display_names[j]) 
+                    #    for j in range(len(filter_display_names))]
+    
+    new_order = [0, 3, 1, 4, 2, 5]  # Desired order of filters in the legend
+    legend_elements = [legend_elements[i] for i in new_order]
+    
+    # Add the Max Error 'x' to the legend
+    legend_elements.append(Line2D([0], [0], marker='x', color='red', label='Max Error', 
+                                  markersize=5, linestyle='None', markeredgewidth=1))
+
+    # Place legend centered underneath the subplots
+    fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 0.0),
+               ncol=4, fontsize=10, frameon=False, handletextpad=0.5, columnspacing=1.0)
+
+    # Adjust layout to make room for labels and legend
+    plt.subplots_adjust(left=0.07, right=0.98, top=0.85, bottom=0.22, wspace=0.45)
+    
+    plt.savefig("figures/filter_comparison_bars.pdf", bbox_inches='tight')
+    if show_plot:
+        plt.show()
+
+def get_filter_error_metrics(filter, gt_filter, timeoffset=0):
+    timeoffset_idx1 = (np.abs(np.array(filter.timestamps) - (filter.timestamps[0] + timeoffset))).argmin()
+    timeoffset_idx2 = (np.abs(np.array(gt_filter.timestamps) - (gt_filter.timestamps[0] + timeoffset))).argmin()
+
+    stop_idx1 = len(filter.timestamps)
+    stop_idx2 = len(gt_filter.timestamps)
+
+    timestamps1 = np.array(filter.timestamps)[timeoffset_idx1:stop_idx1]
+    timestamps2 = np.array(gt_filter.timestamps)[timeoffset_idx2:stop_idx2]
+
+    mus1 = np.array(filter.mus)[timeoffset_idx1:stop_idx1]
+    mus2 = np.array(gt_filter.mus)[timeoffset_idx2:stop_idx2]
+    # print("#"*40)
+    if len(timestamps1) != len(timestamps2):
+        mus2_aligned = []
+        for t in timestamps1:
+            idx = (np.abs(timestamps2 - t)).argmin()
+            mus2_aligned.append(mus2[idx])
+        mus2 = np.array(mus2_aligned)
+
+    xy_position_errors = np.linalg.norm(mus1[:, 0:2, 4] - mus2[:, 0:2, 4], axis=1)
+    z_position_errors = np.abs(mus1[:, 2, 4] - mus2[:, 2, 4])
+
+    roll_errors = []
+    pitch_errors = []
+    yaw_errors = []
+    for i in range(timeoffset_idx1, len(timestamps1)):
+        R1 = mus1[i, 0:3, 0:3]
+        R2 = mus2[i, 0:3, 0:3]
+        r1_rpy = Rotation.from_matrix(R1).as_euler('xyz')
+        r2_rpy = Rotation.from_matrix(R2).as_euler('xyz')
+        roll_errors.append(np.abs(np.rad2deg(r1_rpy[0] - r2_rpy[0])))
+        pitch_errors.append(np.abs(np.rad2deg(r1_rpy[1] - r2_rpy[1])))
+        yaw_errors.append(np.abs(np.rad2deg(r1_rpy[2] - r2_rpy[2])))
+    roll_errors = np.array(roll_errors)
+    pitch_errors = np.array(pitch_errors)
+    yaw_errors = np.array(yaw_errors)
+
+    return [np.mean(xy_position_errors), np.std(xy_position_errors), np.max(xy_position_errors), \
+           np.mean(z_position_errors), np.std(z_position_errors), np.max(z_position_errors), \
+           np.mean(roll_errors), np.std(roll_errors), np.max(roll_errors), \
+           np.mean(pitch_errors), np.std(pitch_errors), np.max(pitch_errors), \
+           np.mean(yaw_errors), np.std(yaw_errors), np.max(yaw_errors)]
 
 
 def compare_two_filters(filter1, filter2, filter1_name="Filter 1", filter2_name="Filter 2", timeoffset=0, stop_time=None):
@@ -1496,31 +1879,46 @@ def plot_cov(filter, title="", show=True):
     sigmas = np.array(filter.sigmas)
     timestamps = np.array(filter.timestamps)
     timestamps = timestamps - timestamps[0]  # Normalize time to start at 0
-    
+
+
     # Plot the results
-    fig, axs = plt.subplots(3, 3)
+    fig, axs = plt.subplots(3, 5)
     fig.suptitle(title)
     fig.supxlabel('Covariance values for R,P,Y, Vx,Vy,Vz, Px,Py,Pz\nValues in degrees, m/s, m')
     axs[0, 0].plot(timestamps, np.sqrt(np.rad2deg(sigmas[:, 0, 0])), marker='x', linestyle='-', markersize=3, color='r')
-    axs[0, 0].set_title('Cov 0')
+    axs[0, 0].set_title('Cov Roll')
     axs[1, 0].plot(timestamps, np.sqrt(np.rad2deg(sigmas[:, 1, 1])), marker='x', linestyle='-', markersize=3, color='r')
-    axs[1, 0].set_title('Cov 1')
+    axs[1, 0].set_title('Cov Pitch')
     axs[2, 0].plot(timestamps, np.sqrt(np.rad2deg(sigmas[:, 2, 2])), marker='x', linestyle='-', markersize=3, color='r')
-    axs[2, 0].set_title('Cov 2')
-
+    axs[2, 0].set_title('Cov Yaw')
     axs[0, 1].plot(timestamps, np.sqrt(sigmas[:, 3, 3]), marker='x', linestyle='-', markersize=3, color='r')
-    axs[0, 1].set_title('Cov 3')
+    axs[0, 1].set_title('Cov Vx')
     axs[1, 1].plot(timestamps, np.sqrt(sigmas[:, 4, 4]), marker='x', linestyle='-', markersize=3, color='r')
-    axs[1, 1].set_title('Cov 4')
+    axs[1, 1].set_title('Cov Vy')
     axs[2, 1].plot(timestamps, np.sqrt(sigmas[:, 5, 5]), marker='x', linestyle='-', markersize=3, color='r')
-    axs[2, 1].set_title('Cov 5')
+    axs[2, 1].set_title('Cov Vz')
     
     axs[0, 2].plot(timestamps, np.sqrt(sigmas[:, 6, 6]), marker='x', linestyle='-', markersize=3, color='r')
-    axs[0, 2].set_title('Cov 6')
+    axs[0, 2].set_title('Cov Px')
     axs[1, 2].plot(timestamps, np.sqrt(sigmas[:, 7, 7]), marker='x', linestyle='-', markersize=3, color='r')
-    axs[1, 2].set_title('Cov 7')
+    axs[1, 2].set_title('Cov Py')
     axs[2, 2].plot(timestamps, np.sqrt(sigmas[:, 8, 8]), marker='x', linestyle='-', markersize=3, color='r')
-    axs[2, 2].set_title('Cov 8')
+    axs[2, 2].set_title('Cov Pz')
+
+    axs[0, 3].plot(timestamps, np.sqrt(sigmas[:, 9, 9]), marker='x', linestyle='-', markersize=3, color='r')
+    axs[0, 3].set_title('Cov Gyro Bias x')
+    axs[1, 3].plot(timestamps, np.sqrt(sigmas[:, 10, 10]), marker='x', linestyle='-', markersize=3, color='r')
+    axs[1, 3].set_title('Cov Gyro Bias y')
+    axs[2, 3].plot(timestamps, np.sqrt(sigmas[:, 11, 11]), marker='x', linestyle='-', markersize=3, color='r')
+    axs[2, 3].set_title('Cov Gyro Bias z')
+
+    axs[0, 4].plot(timestamps, np.sqrt(sigmas[:, 12, 12]), marker='x', linestyle='-', markersize=3, color='r')
+    axs[0, 4].set_title('Cov Accel Bias x')
+    axs[1, 4].plot(timestamps, np.sqrt(sigmas[:, 13, 13]), marker='x', linestyle='-', markersize=3, color='r')
+    axs[1, 4].set_title('Cov Accel Bias y')
+    axs[2, 4].plot(timestamps, np.sqrt(sigmas[:, 14, 14]), marker='x', linestyle='-', markersize=3, color='r')
+    axs[2, 4].set_title('Cov Accel Bias z')
+
 
     for ax in axs.flat:
         ax.grid(True)
@@ -1531,7 +1929,7 @@ def plot_cov(filter, title="", show=True):
 def plot_biases(filter, title="", show=True):
     biases = np.array(filter.biases)
     timestamps = np.array(filter.timestamps)
-    # timestamps = timestamps - timestamps[0]  # Normalize time to start at 0
+    timestamps = timestamps - timestamps[0]  # Normalize time to start at 0
 
     # Plot the results
     fig, axs = plt.subplots(2, 3)
@@ -1620,8 +2018,291 @@ def compare_filter_against_gps(filter, gps_measuresments, filter_name="", timeof
         plt.show()
 
 
+def get_filter_error_convergence(filter, gt_filter, filter_timestamps, gt_timestamps, timeoffset=0):
+    # if filter_timestamps is None:
+    #     filter_timestamps = np.array(filter.timestamps)
+    # if gt_timestamps is None:
+    #     gt_timestamps = np.array(gt_filter.timestamps)
+        
+    timeoffset_idx1 = (np.abs(np.array(filter_timestamps) - (filter_timestamps[0] + timeoffset))).argmin()
+    timeoffset_idx2 = (np.abs(np.array(gt_timestamps) - (gt_timestamps[0] + timeoffset))).argmin()
+
+    stop_idx1 = len(filter_timestamps)
+    stop_idx2 = len(gt_timestamps)
+    timestamps1 = np.array(filter_timestamps)[timeoffset_idx1:stop_idx1]
+    timestamps2 = np.array(gt_timestamps)[timeoffset_idx2:stop_idx2]
+
+    mus1 = np.array(filter)[timeoffset_idx1:stop_idx1]
+    mus2 = np.array(gt_filter)[timeoffset_idx2:stop_idx2]
+    # print("#"*40)
+    if len(timestamps1) != len(timestamps2):
+        mus2_aligned = []
+        for t in timestamps1:
+            idx = (np.abs(timestamps2 - t)).argmin()
+            mus2_aligned.append(mus2[idx])
+        mus2 = np.array(mus2_aligned)
+
+    xy_position_errors = np.linalg.norm(mus1[:, 0:2, 4] - mus2[:, 0:2, 4], axis=1)
+    z_position_errors = np.abs(mus1[:, 2, 4] - mus2[:, 2, 4])
+
+    roll_errors = []
+    pitch_errors = []
+    yaw_errors = []
+    for i in range(timeoffset_idx1, len(timestamps1)):
+        R1 = mus1[i, 0:3, 0:3]
+        R2 = mus2[i, 0:3, 0:3]
+        r1_rpy = Rotation.from_matrix(R1).as_euler('xyz')
+        r2_rpy = Rotation.from_matrix(R2).as_euler('xyz')
+        # roll_errors.append(np.abs(np.rad2deg(r1_rpy[0] - r2_rpy[0])))
+        # pitch_errors.append(np.abs(np.rad2deg(r1_rpy[1] - r2_rpy[1])))
+        # yaw_errors.append(np.abs(np.rad2deg(r1_rpy[2] - r2_rpy[2])))
+        roll_errors.append(np.rad2deg(r1_rpy[0] - r2_rpy[0]))
+        pitch_errors.append(np.rad2deg(r1_rpy[1] - r2_rpy[1]))
+        yaw_errors.append(np.rad2deg(r1_rpy[2] - r2_rpy[2]))
+    roll_errors = np.array(roll_errors)
+    pitch_errors = np.array(pitch_errors)
+    yaw_errors = np.array(yaw_errors)
+
+    return [xy_position_errors, z_position_errors, roll_errors, pitch_errors, yaw_errors]
+
+def plot_figure_6_rw_convergence(sbg_inekf_mus, oak_inekf_mus, sbg_mekf_mus, oak_mekf_mus, 
+                                 gt_poses, sbg_timestamps, oak_timestamps, gt_timestamps, show=True):
+    
+    # 1. Compute errors 
+    # Each entry in the dict becomes a list of arrays. Each array is [5, t_sim]
+    filter_data = {
+        'SBG\nMEKF': [get_filter_error_convergence(m, g, s_t, g_t) for m, g, s_t, g_t in zip(sbg_mekf_mus, gt_poses, sbg_timestamps, gt_timestamps)],
+        'SBG\nInEKF': [get_filter_error_convergence(m, g, s_t, g_t) for m, g, s_t, g_t in zip(sbg_inekf_mus, gt_poses, sbg_timestamps, gt_timestamps)],
+        'OAK\nMEKF': [get_filter_error_convergence(m, g, o_t, g_t) for m, g, o_t, g_t in zip(oak_mekf_mus, gt_poses, oak_timestamps, gt_timestamps)],
+        'OAK\nInEKF': [get_filter_error_convergence(m, g, o_t, g_t) for m, g, o_t, g_t in zip(oak_inekf_mus, gt_poses, oak_timestamps, gt_timestamps)]
+    }
+    # dummy_vals_sbg = [get_filter_error_convergence(m, g, s_t, g_t) for m, g, s_t, g_t in zip(sbg_mekf_mus, gt_poses, sbg_timestamps, gt_timestamps)]
+    # dummy_vals_oak = [get_filter_error_convergence(m, g, o_t, g_t) for m, g, o_t, g_t in zip(oak_mekf_mus, gt_poses, oak_timestamps, gt_timestamps)]
+    # filter_data = {
+    #     'SBG\nMEKF': dummy_vals_sbg,
+    #     'SBG\nInEKF': dummy_vals_sbg,
+    #     'OAK\nMEKF': dummy_vals_oak,
+    #     'OAK\nInEKF': dummy_vals_oak
+    # }
+
+
+    desired_stop = 400 
+    row_names = ['SBG\nMEKF', 'SBG\nInEKF', 'OAK\nMEKF', 'OAK\nInEKF']
+    col_names = ['Roll Error (°)', 'Pitch Error (°)', 'Yaw Error (°)']
+    
+    ###
+    matplotlib.rc("pdf", fonttype=42)
+    sns.set_context("paper")
+    sns.set_style("whitegrid")
+    sns.set_palette("colorblind")
+    c = sns.color_palette("colorblind")
+
+    # Make sure you install times & clear matplotlib cache
+    # https://stackoverflow.com/a/49884009
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["mathtext.fontset"] = "stix"
+
+    textwidth_pt = 241.53897 #505.89  # Replace with your actual \textwidth value in points
+    textwidth_inches = textwidth_pt / 72.27
+
+    ###
+    sns.set_style("whitegrid")
+    # plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
+    
+    fig, axs = plt.subplots(4, 3, figsize=(textwidth_inches, int(textwidth_inches)), dpi=300, sharex=True, constrained_layout=True)
+    fig.set_constrained_layout_pads(w_pad=0, h_pad=0, hspace=0, wspace=0.05) # Negative wspace pulls columns in
+    c = sns.color_palette("colorblind")
+    # 2. Set a baseline tight spacing
+    # plt.subplots_adjust(wspace=0.05, hspace=0.1)
+
+    # # 3. Manually nudge columns 1 and 2 to the right to create a gap after col 0
+    # for row_idx in range(4):
+    #     # Get current position of Column 1
+    #     pos1 = axs[row_idx, 1].get_position()
+    #     pos2 = axs[row_idx, 2].get_position()
+        
+    #     # Nudge them right by 0.02 units of figure width
+    #     axs[row_idx, 1].set_position([pos1.x0 + 0.02, pos1.y0, pos1.width, pos1.height])
+    #     axs[row_idx, 2].set_position([pos2.x0 + 0.02, pos2.y0, pos2.width, pos2.height])
+
+
+    for row_idx, filter_name in enumerate(row_names):
+        runs = filter_data[filter_name] # List of arrays, each [5, t_sim]
+        
+        # Select the correct timestamps for this filter group
+        if "SBG" in filter_name:
+            # Assuming sbg_timestamps is a list of arrays corresponding to simulation runs
+            current_timestamps_list = sbg_timestamps 
+        else:
+            current_timestamps_list = oak_timestamps
+
+        for col_idx in range(3):
+            ax = axs[row_idx, col_idx]
+
+            # def wrap_val(vals):
+            #     # Standard wrap to [-180, 180]
+            #     return (vals + 180) % 360 - 180
+
+            # Set Y-Limits
+            if col_idx < 2:
+                ax.set_ylim(-16, 16)
+                if col_idx == 0:
+                    ax.set_yticks([-10, 0, 10])  # Set custom y-ticks
+                    ax.set_yticklabels(['-10', '0', '10'], fontsize=9)  # Label the y-ticks
+                if col_idx == 1:
+                    # ax.set_ylim(-16, 16)
+                    if col_idx == 1:
+                        ax.tick_params(axis='y', which='both', left=False, right=False, labelleft=False, labelright=False)
+            else:
+                ax.set_ylim(-330, 30)
+                ax.set_yticks([0, -180])  # Set custom y-ticks
+                ax.set_yticklabels(['0', '-180'], fontsize=9)  # Label the y-ticks
+
+            ax.tick_params(axis='x', pad=-3) # Decrease padding between tick and graph
+            ax.tick_params(axis='y', pad=-3)  
+
+            ax.set_xticks(np.arange(0, 3, 1))  # Set ticks at 0, 1, 2
+            ax.set_xticklabels(['0', '', '2'], fontsize=9)  # Label only 0 and 2
+
+            # 1. Iterate through each simulation individually
+            for sim_idx, run_data in enumerate(runs):
+                # run_data is [5, t_sim]
+                # Grab the corresponding timestamp array for this specific sim
+                t_raw = current_timestamps_list[sim_idx]
+                t_norm = t_raw - t_raw[0] # Normalize to start at 0
+                
+                # Extract the specific error row (R=2, P=3, Y=4)
+                y_vals = run_data[col_idx + 2]
+
+                # 2. Slice both t and y to your desired window (e.g., 2 seconds)
+                # This handles cases where one sim might be 1.9s and another 2.1s
+                mask = t_norm <= 2.0 
+                t_plot = t_norm[mask]
+                y_plot = y_vals[mask]
+
+                # if col_idx == 2: # Wrap Yaw
+                #     y_plot = wrap_val(y_plot)
+
+                # 3. Plot using the actual timestamps
+                ax.plot(t_plot, y_plot, alpha=0.8, linewidth=0.25)
+
+            # Formatting
+            ax.axhline(0, color='black', linestyle='--', linewidth=0.8, alpha=0.5)
+            ax.set_xlim(0, 2.0) # Force the X-axis to 2 seconds for uniform comparison
+            for label in ax.get_xticklabels():
+                if label.get_text() == '0':
+                    label.set_horizontalalignment('left')
+                if label.get_text() == '2':
+                    label.set_horizontalalignment('right')
+
+            if row_idx == 0:
+                ax.set_title(col_names[col_idx], fontsize=10)
+            if col_idx == 0:
+                ax.set_ylabel(f"{filter_name}", fontsize=10)
+    
+    # for ax in axs[3, :]:
+    #     ax.set_xlabel("Time (s)", fontsize=10, fontweight='bold')
+    axs[3, 1].set_xlabel("Time (s)", fontsize=10, labelpad=-2)  # Set xlabel only for the middle bottom
+
+    if show:
+        plt.savefig("figures/real_world_convergence.pdf")
+        plt.show()
+
+    return
+
+def plot_figure_timing(image_function_timing, inekf_predict_timing, mekf_predict_timing, inekf_heading_update_timing, mekf_heading_update_timing, inekf_rp_update_timing, mekf_rp_update_timing, inekf_full_pose_update_timing, show=True):    
+    print("Timing Results (s) for roll pitch estimation from Horizon:")
+    print(f"Average time for image callback function was {np.mean(image_function_timing)*1000:.4f} ms, with a standard deviation of {np.std(image_function_timing)*1000:.4f} ms over {len(image_function_timing)} runs.")
+    print(f"This equates to an average frequency of {1/np.mean(image_function_timing):.2f} Hz for the image processing callback.")
+
+    print(f"Size of predict function timings: {len(inekf_predict_timing)}")
+    print(f"Size of heading update function timings: {len(inekf_heading_update_timing)}")
+    print(f"Size of roll/pitch update function timings: {len(inekf_rp_update_timing)}")
+    print(f"Size of full Orientation update function timings: {len(inekf_full_pose_update_timing)}")
+
+    data_list = []
+    
+    # Structure data
+    groups = [
+        ('Predict', 'InEKF', inekf_predict_timing),
+        ('Predict', 'MEKF', mekf_predict_timing),
+        ('Heading\nUpdate', 'InEKF', inekf_heading_update_timing),
+        ('Heading\nUpdate', 'MEKF', mekf_heading_update_timing),
+        ('Roll/Pitch\nUpdate', 'InEKF', inekf_rp_update_timing),
+        ('Roll/Pitch\nUpdate', 'MEKF', mekf_rp_update_timing),
+        ('Full Ori.\nUpdate', 'InEKF', inekf_full_pose_update_timing),
+    ]
+
+    for task, filter_type, timings in groups:
+        for t in timings:
+            data_list.append({'Task': task, 'Filter': filter_type, 'Time (ms)': t * 1000})
+
+    df = pd.DataFrame(data_list)
+
+    # 1. IJRR / IEEE Single-Column Specifications
+    # 3.5 inches is the standard column width. 
+    # Height is reduced to keep the aspect ratio tight.
+    plt.rcParams['font.family'] = 'serif'
+    plt.rcParams['font.serif'] = ['sans-serif'] + plt.rcParams['font.serif']
+    plt.rcParams['pdf.fonttype'] = 42
+    
+    FIG_WIDTH = 241.53897 / 72.27  # Convert from points to inches
+    FIG_HEIGHT = FIG_WIDTH * 0.7     # Adjust height for a more compact
+    fig, ax = plt.subplots(figsize=(FIG_WIDTH, FIG_HEIGHT), dpi=300)
+    sns.set_style("whitegrid", {"grid.linestyle": ":"})
+    ax.grid(True, which='major', axis='y', linestyle=':', linewidth=0.8, alpha=0.7)
+    # 2. Plot with adjusted widths for small scale
+    ax = sns.violinplot(
+        x='Task', 
+        y='Time (ms)', 
+        hue='Filter', 
+        data=df, 
+        split=True, 
+        inner=None, 
+        palette="colorblind",
+        linewidth=0.8,
+        density_norm='width',
+        # scale="width",    # Makes all violins have the same peak width
+        width=0.8,        # Increases the footprint of the violin on the x-axis
+        ax=ax
+    )
+
+    new_color = sns.color_palette("colorblind")[2] 
+    ax.collections[6].set_facecolor(new_color)
+
+
+
+    ax.set_ylim(0, 5) # Focusing on the 0-15ms range where the bulk of math happens
+
+    # 4. Academic Formatting
+    ax.set_ylabel("Execution Time (ms)", fontsize=10)
+    ax.set_xlabel("", fontsize=8)
+    
+    # Compact Tick Labels
+    plt.xticks(rotation=0, ha='center', fontsize=10)
+    ax.tick_params(axis='x', which='major', pad=7)
+    
+    plt.yticks(fontsize=10)
+    
+    # Compact Legend
+    from matplotlib.patches import Patch
+    fo_patch = Patch(facecolor=new_color, edgecolor='black', label='InEKF FO', linewidth=0.7)
+    handles, labels = ax.get_legend_handles_labels()
+    handles.append(fo_patch)
+    labels.append("InEKF FO")
+    # ax.legend(handles=handles, labels=labels, title="", fontsize=10, loc='upper right', frameon=True)
+    ax.legend(handles=handles, labels=labels, loc='upper right', frameon=True)
+    plt.tight_layout(pad=0.5)
+
+    if show:
+        plt.savefig("figures/timing_violin.pdf", bbox_inches='tight', pad_inches=0.1)
+        plt.show()
+
+    return ax
+
+import pickle as pkl
 if __name__ == "__main__":
-    data = np.load("inekf_holoocean_simulation_results.npz", allow_pickle=True)
+    data = np.load("inekf_holoocean_simulation_results_15x15.npz", allow_pickle=True)
     inekf_full_traj_maes = data["inekf_full_traj_maes"]
     inekf_5hz_conv_trajectories = data["inekf_5hz_conv_trajectories"]
     inekf_no_horizon_trajectories = data["inekf_no_horizon_trajectories"]
@@ -1632,20 +2313,58 @@ if __name__ == "__main__":
     gt_data = data["gt_data"]
 
 
-    # np.savez("inekf_holoocean_simulation_results_convergence.npz",
-    #     inekf_5hz_conv_trajectories=np.array(inekf_5hz_conv_trajectories, dtype=object),
-    #     inekf_no_horizon_trajectories=np.array(inekf_no_horizon_trajectories, dtype=object),
-    #     mekf_5hz_conv_trajectories=np.array(mekf_5hz_conv_trajectories, dtype=object),
-    #     mekf_no_horizon_trajectories=np.array(mekf_no_horizon_trajectories, dtype=object),
-    #     gt_data=np.array(ground_truth_poses)
-    #     )
-    data = np.load("inekf_holoocean_simulation_results_convergence.npz", allow_pickle=True)
-    inekf_5hz_conv_trajectories = data["inekf_5hz_conv_trajectories"]
-    inekf_no_horizon_trajectories = data["inekf_no_horizon_trajectories"]
-    mekf_5hz_conv_trajectories = data["mekf_5hz_conv_trajectories"]
-    mekf_no_horizon_trajectories = data["mekf_no_horizon_trajectories"]
-    gt_data = data["gt_data"]
+    ## np.savez("inekf_holoocean_simulation_results_convergence.npz",
+    ##     inekf_5hz_conv_trajectories=np.array(inekf_5hz_conv_trajectories, dtype=object),
+    ##     inekf_no_horizon_trajectories=np.array(inekf_no_horizon_trajectories, dtype=object),
+    ##     mekf_5hz_conv_trajectories=np.array(mekf_5hz_conv_trajectories, dtype=object),
+    ##     mekf_no_horizon_trajectories=np.array(mekf_no_horizon_trajectories, dtype=object),
+    ##     gt_data=np.array(ground_truth_poses)
+    ##     )
+
+    ## data = np.load("inekf_holoocean_simulation_results_convergence.npz", allow_pickle=True)
+    ## inekf_5hz_conv_trajectories = data["inekf_5hz_conv_trajectories"]
+    ## inekf_no_horizon_trajectories = data["inekf_no_horizon_trajectories"]
+    ## mekf_5hz_conv_trajectories = data["mekf_5hz_conv_trajectories"]
+    ## mekf_no_horizon_trajectories = data["mekf_no_horizon_trajectories"]
+    ## gt_data = data["gt_data"]
 
 
-    plot_figure_3(inekf_full_traj_maes, mekf_full_traj_maes, inEKF_full_pose_full_traj_maes, show_plot=False)
-    plot_figure_4(inekf_5hz_conv_trajectories, inekf_no_horizon_trajectories, mekf_5hz_conv_trajectories, mekf_no_horizon_trajectories, gt_data)
+    # plot_figure_3(inekf_full_traj_maes, mekf_full_traj_maes, inEKF_full_pose_full_traj_maes, show_plot=True)
+    # plot_figure_4(inekf_5hz_conv_trajectories, inekf_no_horizon_trajectories, mekf_5hz_conv_trajectories, mekf_no_horizon_trajectories, gt_data)
+
+    # # Load the data
+    # df_loaded = pd.read_csv('filter_metrics_comparison.csv')
+
+    # # Example: Accessing specific data for plotting
+    # plot_figure_5_bar_graph(df_loaded, show_plot=True)
+
+
+    ## Plotting figure 6 convergence for real-world data
+    with open("real_world_convergence_data.pkl", "rb") as f:
+        convergence_data = pkl.load(f)
+    
+    sbg_inekf_mus = convergence_data["sbg_inekf_mus"]
+    oak_inekf_mus = convergence_data["oak_inekf_mus"]
+    sbg_mekf_mus = convergence_data["sbg_mekf_mus"]
+    oak_mekf_mus = convergence_data["oak_mekf_mus"]
+    gt_poses = convergence_data["gt_poses"]
+    sbg_timestamps = convergence_data["sbg_timestamps"]
+    oak_timestamps = convergence_data["oak_timestamps"]
+    gt_timestamps = convergence_data["gt_timestamps"]
+
+    plot_figure_6_rw_convergence(sbg_inekf_mus, oak_inekf_mus, sbg_mekf_mus, oak_mekf_mus, gt_poses, sbg_timestamps, oak_timestamps, gt_timestamps, show=True)
+
+    ### Real world convergence with GPS comparison
+    # with open("timing_data.pkl", "rb") as f:
+    #     timing_data = pkl.load(f)
+
+    # image_function_timing = timing_data["image_function_timing"]
+    # inekf_predict_timing = timing_data["inekf_predict_timing"]
+    # mekf_predict_timing = timing_data["mekf_predict_timing"]
+    # inekf_heading_update_timing = timing_data["inekf_heading_update_timing"]
+    # mekf_heading_update_timing = timing_data["mekf_heading_update_timing"]
+    # inekf_rp_update_timing = timing_data["inekf_rp_update_timing"]
+    # mekf_rp_update_timing = timing_data["mekf_rp_update_timing"]
+    # inekf_full_pose_update_timing = timing_data["inekf_full_pose_update_timing"]
+  
+    # plot_figure_timing(image_function_timing, inekf_predict_timing, mekf_predict_timing, inekf_heading_update_timing, mekf_heading_update_timing, inekf_rp_update_timing, mekf_rp_update_timing, inekf_full_pose_update_timing, show=True)

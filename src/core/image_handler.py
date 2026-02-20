@@ -117,24 +117,24 @@ class ImageProcessor:
                 plt.show()
             ####################### End Debug block #######################
         except Exception as e:
-            # plt.figure()
-            # plt.imshow(undistorted, cmap='gray')
+            plt.figure()
+            plt.imshow(undistorted, cmap='gray')
             plt.title("LSD Failed to Detect Horizon Line")
             # plt.show()
             
-            # print("LSD Horizon Detection Error:", e)
-            # plt.figure()
-            # debug_image = undistorted.copy()
-            # debug_image = cv2.cvtColor(debug_image, cv2.COLOR_GRAY2BGR)
+            print("LSD Horizon Detection Error:", e)
+            plt.figure()
+            debug_image = undistorted.copy()
+            debug_image = cv2.cvtColor(debug_image, cv2.COLOR_GRAY2BGR)
 
-            # if lines is not None:
-            #     for line in lines:
-            #         x1, y1, x2, y2 = map(int, line[0])
-            #         cv2.line(debug_image, (x1, y1), (x2, y2), (0, 255, 0), 3)  # Draw in green
+            if lines is not None:
+                for line in lines:
+                    x1, y1, x2, y2 = map(int, line[0])
+                    cv2.line(debug_image, (x1, y1), (x2, y2), (0, 255, 0), 3)  # Draw in green
 
             # # Display the debug image
-            # plt.imshow(debug_image)
-            # plt.show()
+            plt.imshow(debug_image)
+            plt.show()
             
             return HorizonObservation(
                 valid=False,
@@ -152,8 +152,12 @@ class ImageProcessor:
             timestamp_nsec=timestamp_nsec,
             roll_rad=roll,
             pitch_rad=pitch,
-            roll_var=np.deg2rad(0.18), #0.02, #0.003
-            pitch_var=np.deg2rad(0.18) # 0.02
+            # roll_var=np.deg2rad(0.18), #0.02, #0.003
+            # pitch_var=np.deg2rad(0.18) # 0.02
+            roll_var=np.deg2rad(0.15),
+            pitch_var=np.deg2rad(0.15)
+            # roll_var=np.deg2rad(1), #0.02, #0.003
+            # pitch_var=np.deg2rad(1) # 0.02
         )
     #################################
 

@@ -16,10 +16,11 @@ from helpers.robot_system import WAMVASV
 
 class InEKF:
     # def __init__(self, init_quat, init_xyz, init_vel, first_timestamp=0, est_bias=True, R_orientation_sen=None, init_sigma=sbg_Q, Q=sbg_Q, init_bias=False):
-    def __init__(self, init_sigma=None, Q=None, init_state=None, first_timestamp=0, est_bias=True):
+    def __init__(self, init_sigma=None, Q=None, init_state=None, first_timestamp=0, est_bias=True, update_rate=200):
 
         self.est_bias = est_bias # Can turn of Bias estimation
         self.sys = WAMVASV(Q)
+        self.update_rate = update_rate
                
         # Initialize state, covariance, and noise parameters here
         if init_state is not None:
@@ -90,7 +91,7 @@ class InEKF:
         angular_velocity = imu_measurement.gyro
 
         if self.prev_time is None:
-            dt = 1/200
+            dt = 1/self.update_rate
             # self.timestamps.append(current_time-dt)
             # return
         else:
@@ -125,7 +126,7 @@ class InEKF:
                                    [      zero,      zero,      zero,  zero,  zero],
                                    [      zero,      zero,      zero,  zero,  zero]])*dt)
 
-        Q_mod = dt/(1/200) # For situations where dt is not constant because measurements are dropped
+        Q_mod = 1 # dt/(1/self.update_rate) # For situations where dt is not constant because measurements are dropped
         sigma_bar = self.expA @ self.sigma @ self.expA.T + self.expA @ (Q_mod * self.sys.Q) @ self.expA.T * dt
         
 
@@ -203,12 +204,27 @@ class InEKF:
 
 
     def gps_callback(self, gps_measurement: GPSMeasurement):
-        
+        # b = np.array([[1.32, 0, -0.6, 0, 1]]).T
+        # b = np.array([[-0.245, 0.5, 0.2, 0, 1]]).T  # when observing gps differences
+        b = np.array([[0, 0, 0, 0, 1]]).T # No lever arm correction.
+        # b = np.array([[-0.36, 0, -0.42, 0, 1]]).T
+        # b = np.array([[0.36, 0, 0.42, 0, 0]]).T # So far most correct on real world data
+
+        # gps_lever_arm = np.array([-1.32, 0, 0.6])
+        gps_cross = self.sys.cross(b[:3].squeeze())
+
         Rot = self.mu[:3,:3]
 
         zero = np.zeros((3,3))
         I = np.eye(3)
-        H = np.block([[zero, zero, I, zero, zero]]) # Measurement matrix, measurement is xyz for now
+        # H = np.block([[zero, zero, I, zero, zero]]) # Measurement matrix, measurement is xyz for now
+        H = np.block([[gps_cross, zero, I, zero, zero]]) # Measurement matrix, measurement is xyz for now
+        # gps_cross added per https://arxiv.org/pdf/2102.12897 equation 127
+        # SE2(3) based Extended Kalman Filtering and Smoothing Framework for Inertial-Integrated NavigationYarong Luo, yarongluo@whu.edu.cn
+        # Note, they negate their gps_cross, but I believe this is because they define their lever arm in the opposite direction (from gps to body) than I do (body to gps)
+        # In simulation I showed that this lever arm correction improved accuracy, but it's hard to say in real world data because our SBG IMU "ground truth"
+        # ignored my provided offsets, so the lever arm correction may be correcting for something that is already "corrected" in the SBG data.
+        # I've been a little frustrated with their GPS documentation
 
         # R_pos_sensor = np.diag([0.1, 0.1, 0.5])**2
         S = H @ self.sigma @ H.T + Rot.T @ gps_measurement.position_cov @ Rot
@@ -217,8 +233,11 @@ class InEKF:
 
         zero = np.zeros((3,2))
         II = np.block([[I, zero]])
-        # Z = np.array([[x, y, alt-z_offset_ellipsoid, 0, 1]]).T
         Z = np.array([[gps_measurement.x, gps_measurement.y, gps_measurement.z, 0, 1]]).T
+
+        # gps_measurement_vector = np.array([gps_measurement.x, gps_measurement.y, gps_measurement.z])
+        # gps_body_meas = gps_measurement_vector + Rot @ gps_lever_arm # Convert GPS measurement to body frame using lever arm correction
+        # Z = np.array([[gps_body_meas[0], gps_body_meas[1], gps_body_meas[2], 1, 0]]).T
 
         # Z = np.array([[x, y, 0, 0, 1]]).T
 
@@ -226,7 +245,8 @@ class InEKF:
         # Z[1] = -Z[1] # Flip y to match simulator
         # Z[2] = -Z[2] # Flip z to match simulator
 
-        V = II @ inv(self.mu) @ Z
+        V = II @ inv(self.mu) @ (Z - self.mu @ b)
+        # V = II @ inv(self.mu) @ Z
 
         self.mus[-1] = self.mu @ expm( self.sys.carat( (K[:9] @ V).squeeze() ))
         

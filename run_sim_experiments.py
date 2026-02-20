@@ -11,14 +11,14 @@ from tqdm import tqdm
 # Add the project root to the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from helpers.sim_helpers import convert_filter_mus_to_rpy_xyz, compute_position_mae, imu_add_noise, gps_add_noise, heading_add_noise, add_initial_state_noise, plot_cov, plot_figure_3, plot_figure_4, plot_results, plot_results_cov
+from helpers.function_helpers import convert_filter_mus_to_rpy_xyz, compute_position_mae, imu_add_noise, gps_add_noise, heading_add_noise, add_initial_state_noise, plot_cov, plot_figure_3, plot_figure_4, plot_results, plot_results_cov
 from src.core.jitter_buffer import JitterBuffer
 from src.core.image_handler import ImageProcessor
 
 from src.estimators.invariant_ekf import InEKF
 from src.estimators.multiplicative_ekf import MEKF
 
-from helpers.sim_params import HolooceanConfigParams
+from helpers.params import HolooceanConfigParams
 
 # from helpers.load_holoocean_ros_types import typestore as holoocean_typestore
 
@@ -46,7 +46,7 @@ Topic: /holoocean/asv0/RotationSensor     | Type: geometry_msgs/msg/Vector3Stamp
 plot_images = False
 
 # path_to_bag = "data/holoocean_island_full_sensor_suite"
-path_to_bag = "data/holoocean_open_water_loop_waves"
+path_to_bag = "data/holoocean_open_water_loop_waves_small_15x15"
 num_msgs = 0
 num_images = 0
 
@@ -64,7 +64,7 @@ dict_horizon_measurements = {} # indexed by timestamp
 
 num_simulations = 100
 convergence_plot_length_seconds = 10
-simulation_length_s = 30 #60
+simulation_length_s = 60
 
 inekf_full_traj_maes = [] # Tracking MAE for each simulation across entire trajectory
 mekf_full_traj_maes = []
@@ -75,7 +75,6 @@ mekf_5hz_conv_trajectories = []
 mekf_no_horizon_trajectories = []
 
 for i in tqdm(range(num_simulations), desc="Simulations"):
-    # num_rotation_sensor_msgs = 0 # TODO: Remove this variable when bag is fixed
     buffer = JitterBuffer(delay_ns=JITTER_THRESHOLD)
     first_timestamp = None
     simulation_enabled = False
@@ -110,10 +109,12 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
                         init_state = np.array([np.deg2rad(rpy[0]), np.deg2rad(rpy[1]), np.deg2rad(rpy[2]), 0, 0, 0, msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z])  # [roll, pitch, yaw, vx, vy, vz, x, y, z]
                         ground_truth_poses.append((first_sim_timestamp, rpy[0], rpy[1], rpy[2], msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z))
                         
-                        init_state_noisy = add_initial_state_noise(init_state, config_params.init_cov)
-                        
+                        # init_state_noisy = add_initial_state_noise(init_state, config_params.init_cov)
+                        init_state_noisy = init_state
+
                         inEKF_full_traj = InEKF(config_params.init_cov, config_params.imu_noise_params, init_state=init_state_noisy, first_timestamp=first_sim_timestamp)
                         MEKF_full_traj = MEKF(config_params.init_cov, config_params.imu_noise_params, init_state=init_state_noisy, first_timestamp=first_sim_timestamp)
+                        inEKF_full_pose_full_traj = InEKF(config_params.init_cov, config_params.imu_noise_params, init_state=init_state_noisy, first_timestamp=first_sim_timestamp)
                         
                         init_state_high_noise = add_initial_state_noise(init_state, config_params.init_cov_high)
                         inEKF_5hz_conv = InEKF(config_params.init_cov_high, config_params.imu_noise_params, init_state=init_state_high_noise, first_timestamp=first_sim_timestamp)
@@ -121,7 +122,6 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
 
                         MEKF_5hz_conv = MEKF(config_params.init_cov_high, config_params.imu_noise_params, init_state=init_state_high_noise, first_timestamp=first_sim_timestamp)
                         MEKF_no_horizon = MEKF(config_params.init_cov_high, config_params.imu_noise_params, init_state=init_state_high_noise, first_timestamp=first_sim_timestamp)
-                        inEKF_full_pose_full_traj = InEKF(config_params.init_cov, config_params.imu_noise_params, init_state=init_state, first_timestamp=first_sim_timestamp)
 
                 continue  # Skip processing until simulation is enabled
 
@@ -156,8 +156,8 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
                         MEKF_5hz_conv.imu_callback(imu_measurement)
                         MEKF_no_horizon.imu_callback(imu_measurement)
 
-                    if timestamp - first_sim_timestamp > simulation_length_s:
-                        exit_flag = True
+                    # if timestamp - first_sim_timestamp > simulation_length_s:
+                    #     exit_flag = True
 
                 elif connection.topic == "/holoocean/asv0/GPSSensor":
                     # msg = reader.deserialize(rawdata, connection.msgtype)
@@ -309,11 +309,12 @@ np.savez("inekf_holoocean_simulation_results.npz",
 #         )
 
 # TODO: Uncomment all of these:
-# plot_results(MEKF_full_traj, gt_data=np.array(ground_truth_poses), show=False, title="MEKF Full Trajectory", horizon_dict=dict_horizon_measurements)
-# plot_results(inEKF_full_traj, gt_data=np.array(ground_truth_poses), show=False, title="InEKF Full Trajectory", horizon_dict=dict_horizon_measurements)
-# plot_cov(inEKF_full_traj, title="InEKF Full Trajectory Covariance", show=False)
-# plot_cov(MEKF_full_traj, title="MEKF Full Trajectory Covariance", show=False)
+plot_results(MEKF_full_traj, gt_data=np.array(ground_truth_poses), show=False, title="MEKF Full Trajectory", horizon_dict=dict_horizon_measurements)
+plot_results(inEKF_full_traj, gt_data=np.array(ground_truth_poses), show=False, title="InEKF Full Trajectory", horizon_dict=dict_horizon_measurements)
+plot_cov(inEKF_full_traj, title="InEKF Full Trajectory Covariance", show=False)
+plot_cov(MEKF_full_traj, title="MEKF Full Trajectory Covariance", show=False)
 
 print("InEKF Full Trajectory MAEs (XY, Z, RPY) over simulations:", np.mean(inekf_full_traj_maes, axis=0))
 plot_figure_3(np.array(inekf_full_traj_maes), np.array(mekf_full_traj_maes), np.array(inEKF_full_pose_full_traj_maes), show_plot=False)
 plot_figure_4(np.array(inekf_5hz_conv_trajectories), np.array(inekf_no_horizon_trajectories), np.array(mekf_5hz_conv_trajectories), np.array(mekf_no_horizon_trajectories), gt_data=np.array(ground_truth_poses), show_plot=True)
+

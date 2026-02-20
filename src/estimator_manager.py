@@ -3,7 +3,7 @@ from scipy.spatial.transform import Rotation
 
 
 from src.estimators.invariant_ekf import InEKF as InvariantEKF
-from helpers.sim_helpers import *
+from helpers.function_helpers import *
 
 from helpers.plotting_helpers import plot_imu_data
 

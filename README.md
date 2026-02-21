@@ -3,7 +3,5 @@ Accompanying repository for: Invariant Extended Kalman Filter for Autonomous Sur
 
 
 # Next Dev Steps
-- Fix plotting for MAE figure
-- parallelize MC simulations
-- InEKF & MEKF in C++
-- Streamline real world results
+Write a really good README
+Clone repo on different computer and verify install

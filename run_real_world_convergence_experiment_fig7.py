@@ -1,17 +1,15 @@
 from pathlib import Path
 from rosbags.image import message_to_cvimage
 from rosbags.highlevel import AnyReader
-from matplotlib import pyplot as plt
 import numpy as np
 
 import sys
 import os
 
-from tqdm import tqdm
 # Add the project root to the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from helpers.function_helpers import compare_two_filters, convert_filter_mus_to_rpy_xyz, compute_position_mae, fuse_sbg_ekf_msgs, get_filter_error_metrics, imu_add_noise, gps_add_noise, heading_add_noise, add_initial_state_noise, plot_biases, plot_cov, plot_figure_3, plot_figure_4, plot_figure_5_bar_graph, plot_figure_6_rw_convergence, plot_results, plot_results_comparison_gt, plot_results_cov, convert_gps_to_xyz, sbg_ekf_to_filter, plot_results_comparison_gt_cov
+from helpers.function_helpers import fuse_sbg_ekf_msgs, gps_add_noise, heading_add_noise, plot_figure_7_rw_convergence, convert_gps_to_xyz, sbg_ekf_to_filter
 from src.core.jitter_buffer import JitterBuffer
 from src.core.image_handler import ImageProcessor
 
@@ -21,23 +19,18 @@ from helpers.load_sbg_types import typestore as sbg_typestore
 
 from helpers.params import RealWorldOAKConfigParams, RealWorldSBGConfigParams
 
-import matplotlib.pyplot as plt
-
 from scipy.spatial.transform import Rotation
 import pickle
 
 plot_images = False
 
-# path_to_bag = "data/nav_and_forward_cam_seg"
-path_to_bag = "/home/laser14/Documents/inekf_hawaii/data/nav_and_forward_cam_seg_fixed_rollover"
-# /home/laser14/Documents/holoocean_ros_ws/src/holoocean-ros/holoocean_open_water_loop_waves_gps_offset
+path_to_bag = "data/nav_and_forward_cam_seg"
 
-# path_to_bag = "/home/laser14/Documents/inekf_hawaii/data/reordered_nav_and_forward_cam_seg_fixed_rollover"
 num_msgs = 0
 num_images = 0
 
 
-# # Parameters
+# Parameters
 JITTER_THRESHOLD = 700_000_000  # 0.7 second lookahead
 config_params_sbg = RealWorldSBGConfigParams()
 config_params_oak = RealWorldOAKConfigParams()
@@ -49,13 +42,6 @@ convergence_plot_length_seconds = 2
 convergence_plot_gap_seconds = 0.1
 
 end_time = 0
-
-# inekf_full_traj_maes = [] # Tracking MAE for each simulation across entire trajectory
-# mekf_full_traj_maes = []
-# inEKF_full_pose_full_traj_maes = []
-# inekf_5hz_conv_trajectories = [] # Tracking convergence over first N seconds
-# inekf_no_horizon_trajectories = [] # Tracking convergence over first N seconds
-# mekf_no_horizon_trajectories = []
 
 sbg_inekf_mus = []
 oak_inekf_mus = []
@@ -104,10 +90,6 @@ with AnyReader([Path(path_to_bag)]) as reader:
             except:
                 # TODO: Remove messages in bag that aren't needed in this experiment
                 continue
-
-
-            # if not first_lock and ready_msg.connection.topic == '/sbg/gps_hdt':
-            #     first_lock = True
 
             if not filter_started:
                 if ready_msg.connection.topic == '/sbg/ekf_nav':
@@ -309,10 +291,7 @@ with AnyReader([Path(path_to_bag)]) as reader:
             gt_poses.append(np.array(gt_as_filter.mus))
             gt_pose_timestamps.append(np.array(gt_as_filter.timestamps))
 
-            # print(f"Finished Simulation {num_simulations}")
-            # print(f"Length of SBG InEKF trajectory: {len(inEKF_sbg_full_traj.mus)}")
-            # print(f"Length of OAK InEKF trajectory: {len(inEKF_oak_full_traj.mus)}\n")
-        if num_simulations > 100: # For development purposes, limit to 10 simulations
+        if num_simulations > 100: # For development purposes, can limit to less
             break
             
     for final_msg in buffer.flush(): # Clear the buffer for now
@@ -334,8 +313,4 @@ with open("real_world_convergence_data.pkl", "wb") as f:
         "gt_timestamps": gt_pose_timestamps,
     }, f)
 
-plot_figure_6_rw_convergence(sbg_inekf_mus, oak_inekf_mus, sbg_mekf_mus, oak_mekf_mus, gt_poses, sbg_timestamps, oak_timestamps, gt_pose_timestamps, show=True)
-
-# Next steps:
-# 4. Make this plot and others look fancy!
-# 5. Make timing figure 
+plot_figure_7_rw_convergence(sbg_inekf_mus, oak_inekf_mus, sbg_mekf_mus, oak_mekf_mus, gt_poses, sbg_timestamps, oak_timestamps, gt_pose_timestamps, show=True)

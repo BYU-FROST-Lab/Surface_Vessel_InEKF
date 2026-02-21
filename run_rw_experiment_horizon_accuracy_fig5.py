@@ -1,3 +1,7 @@
+'''
+This script analyzes the accuracy of the horizon measurements on realworld data and creates the plot for Figure 5 in the paper.
+'''
+
 from pathlib import Path
 from rosbags.image import message_to_cvimage
 from rosbags.highlevel import AnyReader
@@ -11,21 +15,15 @@ from tqdm import tqdm
 # Add the project root to the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from helpers.function_helpers import convert_filter_mus_to_rpy_xyz, compute_position_mae, imu_add_noise, gps_add_noise, heading_add_noise, add_initial_state_noise, plot_cov, plot_figure_3, plot_figure_4, plot_results, plot_results_cov
 from src.core.jitter_buffer import JitterBuffer
 from src.core.image_handler import ImageProcessor
 
-# from src.estimators.invariant_ekf import InEKF
-# from src.estimators.multiplicative_ekf import MEKF
-
 from helpers.load_sbg_types import typestore as sbg_typestore
-import ahrs # TODO: Add to requirements.txt, used for Madgwick filter
+import ahrs
 import math
 
 
 from helpers.params import RealWorldSBGConfigParams
-
-# from helpers.load_holoocean_ros_types import typestore as holoocean_typestore
 
 import matplotlib.pyplot as plt
 
@@ -37,7 +35,7 @@ path_to_bag = "data/nav_and_forward_cam_seg"
 num_msgs = 0
 
 # # Parameters
-JITTER_THRESHOLD = 1_000_000_000  # 1000ms lookahead
+JITTER_THRESHOLD = 1_000_000_000  # Buffer lookahead in ms
 config_params = RealWorldSBGConfigParams()
 camera_processor = ImageProcessor(config_params.mtx, config_params.dist, config_params.img_width, config_params.img_height, camera_height=config_params.camera_height)
 
@@ -59,11 +57,9 @@ num_imgs = 0
 buffer = JitterBuffer(delay_ns=JITTER_THRESHOLD)
 first_timestamp = None
 simulation_enabled = False
-waiting_threshold = 5  # 15 seconds
+waiting_threshold = 5
 exit_flag = False
 ground_truth_poses = []
-current_random_walk = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])  # Initial random walk for IMU noise
-current_random_walk += np.random.normal(0, config_params.init_cov[9:15, 9:15].diagonal()**0.5, size=6)
 
 last_horizon_observation = None
 
@@ -96,14 +92,12 @@ with AnyReader([Path(path_to_bag)]) as reader:
             elif connection.topic == '/imu/data':
                 msg = reader.deserialize(ready_msg.data, ready_msg.connection.msgtype)
                 time = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
-                # imu_gyro = [msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z]
                 imu_accel = [msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z]
                 sbg_imu_gyro_list.append([msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z])
                 sbg_imu_accel_list.append(imu_accel)
                 # Roll = ϕ = arctan2(ay, az)
                 # Pitch = θ = arctan2(ax, gravity)
                 roll = math.atan2(imu_accel[1], imu_accel[2]) * 180 / np.pi
-                # pitch = math.atan2(imu_accel[0], 9.81) * 180 / np.pi
                 pitch = math.atan2(-imu_accel[0], np.sqrt(imu_accel[1]**2 + imu_accel[2]**2)) * 180 / np.pi
                 imu_rp.append((time, roll, pitch))
             
@@ -139,31 +133,18 @@ oak_imu_accel_list = np.array(oak_imu_accel_list)
 oak_imu_timestamps = np.array(oak_imu_timestamps)
 
 # OAK IMU coordinate frame is in DES (Down East South) which is a 0, 90, 180 degree rotation about the y and z axes from ENU frame
-# rot = Rotation.from_euler('xz', [-90, 180], degrees=True)
-rot = np.array([[0, -1, 0],
-                [0, 0, -1],
-                [1, 0, 0]])
 rot_sbg_to_oak_c = np.array([[-0.00364432, -0.00424146,  0.99998436],
                              [-0.99999098, -0.00216758, -0.00365354],
                              [ 0.00218304, -0.99998866, -0.00423352]])
-
-rot_oak_c_to_oak_imu = np.array([[0.99998691, 0.00375827, -0.00347223],
-                                 [-0.00377214, 0.99998489, -0.00399805],
-                                 [ 0.00345715, 0.0040111, 0.99998598]])
-
-# rot = rot_sbg_to_oak_c @ rot_oak_c_to_oak_imu.T
-
 rot = rot_sbg_to_oak_c
 
 for i in range(len(oak_imu_accel_list)):
     oak_imu_accel_list[i] = rot @ oak_imu_accel_list[i]
-    oak_imu_accel_list[i][1] = oak_imu_accel_list[i][1] # + 1 # removing bias of 1 m/s^2 in Y direction
+    oak_imu_accel_list[i][1] = oak_imu_accel_list[i][1]
     oak_imu_gyro_list[i] = rot @ oak_imu_gyro_list[i]
 
 for i in range(len(oak_imu_accel_list)):
     roll = math.atan2(oak_imu_accel_list[i][1], oak_imu_accel_list[i][2]) * 180 / np.pi
-    # Pitch = θ = arctan2(ax, gravity)
-    # pitch = math.atan2(imu_accel[0], 9.81) * 180 / np.pi
     pitch = math.atan2(-oak_imu_accel_list[i][0], np.sqrt(oak_imu_accel_list[i][1]**2 + oak_imu_accel_list[i][2]**2)) * 180 / np.pi
     oak_imu_rp.append((oak_imu_timestamps[i], roll, pitch))
 
@@ -187,7 +168,7 @@ madgwick_oak = ahrs.filters.Madgwick(gyr=oak_imu_gyro_list,
                                 #  mag=simulated_data.magnetometers,
                                  frequency=170)
 madgwick_oak_quat = madgwick_oak.Q
-# quat is in (w, x, y, z) format, need to convert to
+# quat is in (w, x, y, z) format, need to convert to (x, y, z, w)
 madgwick_oak_quat = np.array([[q[1], q[2], q[3], q[0]] for q in madgwick_oak_quat])
 madgwick_oak_rpy = Rotation.from_quat(madgwick_oak_quat).as_euler('xyz', degrees=True)
 
@@ -300,15 +281,12 @@ plt.rc('figure', titlesize=MEDIUM_SIZE)  # fontsize of the figure title
 lw = 2.0  # Line width for plots
 
 c = sns.color_palette("colorblind")
-sbg_color =     c[4] #c[0]
-horizon_color = c[8] #c[1]
-sbg_imu_color = c[3] #c[2]
-oak_imu_color = c[9] #c[9]
+sbg_color =     c[4]
+horizon_color = c[8]
+sbg_imu_color = c[3]
+oak_imu_color = c[9]
 g_lw = 0.75
-# sbg_gravity_color = c[2]
-# sbg_madgwick_color = c[2]
-# oak_gravity_color = c[9]
-# oak_madgwick_color = c[9]
+
 
 # --- ROW 1: Estimated Roll (Main and Zoomed) ---
 ax1 = axs[0, 0]
@@ -325,7 +303,6 @@ ax1.yaxis.tick_left()
 ax1.tick_params(axis='both', which='major', labelsize=SMALL_SIZE, pad=2)
 
 
-# ax1.set_title('Estimated Roll (Full View)', fontsize=MEDIUM_SIZE) # Use slightly larger title font
 ax1.set_ylabel('Roll (°)', fontsize=MEDIUM_SIZE, labelpad=0) # Use symbol for brevity
 
 # Draw the Zoom Box on ax1 (Rectangle)
@@ -340,19 +317,15 @@ ax1.add_patch(rect_roll)
 
 # Zoomed Roll Plot (Top-Right)
 ax_zoom_roll = axs[0, 1]
-# ax_zoom_roll.plot(imu_rp[:, 0]-st, imu_rp[:, 1], linewidth=g_lw, alpha=0.8, c=c[2])
-# ax_zoom_roll.plot(oak_imu_rp[:, 0]-st, oak_imu_rp[:, 1], linewidth=g_lw, alpha=0.8, c=c[9])
 ax_zoom_roll.plot(sbg_rp[:, 0]-st, sbg_rp[:, 1], linewidth=lw, c=sbg_color)
 ax_zoom_roll.plot(tracked_rp[:, 0]-st, tracked_rp[:, 1], linewidth=lw, linestyle='dashed', c=horizon_color)
 ax_zoom_roll.plot(imu_rp[:, 0]-st, madgwick_sbg_rpy[:, 0], linewidth=lw, c=sbg_imu_color, linestyle='dashed')
 ax_zoom_roll.plot(oak_imu_timestamps-st, madgwick_oak_rpy[:, 0], linewidth=lw, linestyle='dashed', c=oak_imu_color)
 ax_zoom_roll.set_xlim(ROLL_XLIM)
 ax_zoom_roll.set_ylim(ROLL_YLIM)
-# ax_zoom_roll.set_title('Zoom: 0.8s to 1.2s', fontsize=MEDIUM_SIZE)
 ax_zoom_roll.grid(True, linestyle=':', alpha=0.5)
 ax_zoom_roll.yaxis.tick_right()
 ax_zoom_roll.yaxis.set_label_position('right')
-# ax_zoom_roll.set_ylabel('Roll (°)')
 ax_zoom_roll.tick_params(labelleft=False)
 ax_zoom_roll.tick_params(axis='both', which='major', labelsize=SMALL_SIZE, pad=2)
 
@@ -360,9 +333,6 @@ ax_zoom_roll.tick_params(axis='both', which='major', labelsize=SMALL_SIZE, pad=2
 for spine in ax_zoom_roll.spines.values():
     spine.set_linewidth(zoomed_lw)  # Set the border thickness
     spine.set_edgecolor('black')  # Set the border color
-
-# Add abels.append(f"{tick:.1f}")  # Smaller labels for 0.5 values
-
 
 # Connector Lines (Roll)
 con_top = ConnectionPatch(xyA=(ROLL_XLIM[1], ROLL_YLIM[1]), coordsA="data", axesA=ax1, xyB=(ROLL_XLIM[0], ROLL_YLIM[1]), coordsB="data", axesB=ax_zoom_roll, color="black", linestyle='--', linewidth=zoomed_lw)
@@ -384,10 +354,7 @@ ax2.set_ylim([-22, 8])
 ax2.set_xlim(-.1, 3.1)
 ax2.yaxis.tick_left()
 ax2.tick_params(axis='both', which='major', labelsize=SMALL_SIZE, pad=2)
-# ax2.yaxis.set_tick_params(pad=0)  # Shift y-axis ticks slightly to the right
 ax2.xaxis.tick_bottom()
-# ax2.set_title('Estimated Pitch (Full View)', fontsize=MEDIUM_SIZE)
-# ax2.set_xlabel('Time (s)      ', loc='right', fontsize=MEDIUM_SIZE) 
 fig.text(0.5, 0.175, 'Time (s)', ha='center', fontsize=MEDIUM_SIZE)
 ax2.set_ylabel('Pitch (°)', fontsize=MEDIUM_SIZE, labelpad=0)
 
@@ -402,13 +369,8 @@ ax2.add_patch(rect_pitch)
 
 # Legend for the main plots
 handles, labels = ax2.get_legend_handles_labels()
-# order = [2, 3, 4, 5, 0, 1]
 order = [2, 3, 0, 1, 4, 5]
 
-# Use bbox_to_anchor to place the legend outside the subplot or adjust its position
-# fig.legend([handles[idx] for idx in order], [labels[idx] for idx in order], loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=2)
-# fig.legend([handles[idx] for idx in order], [labels[idx] for idx in order], loc='lower center', bbox_to_anchor=(0.5, -0.05), ncol=3, fontsize=SMALL_SIZE, frameon=False)
-# fig.legend([handles[idx] for idx in order], [labels[idx] for idx in order], loc='lower center', bbox_to_anchor=(0.5, 0.0), ncol=2, prop={'size': SMALL_SIZE}, handlelength=3, handleheight=1.25, handlelinewidth=2, frameon=False)
 from matplotlib.legend_handler import HandlerLine2D
 from matplotlib.lines import Line2D
 
@@ -421,11 +383,9 @@ class HandlerThickLine(HandlerLine2D):
             legend, orig_handle, xdescent, ydescent,
             width, height, fontsize, trans
         )
-        line[0].set_linewidth(2)  # <-- Set your desired thickness here (e.g., 2)
+        line[0].set_linewidth(2) 
         return line
 
-# --- Now, modify your legend call ---
-# You need to pass the custom handler for all lines (Line2D objects)
 fig.legend(
     [handles[idx] for idx in order],
     [labels[idx] for idx in order],
@@ -450,8 +410,6 @@ ax_zoom_pitch.plot(imu_rp[:,0]-st, madgwick_sbg_rpy[:,1], label="SBG IMU Madgwic
 ax_zoom_pitch.plot(oak_imu_timestamps-st, madgwick_oak_rpy[:, 1], label="OAK IMU Madgwick", linewidth=lw, linestyle='dashed', c=oak_imu_color)
 ax_zoom_pitch.set_xlim(PITCH_XLIM)
 ax_zoom_pitch.set_ylim(PITCH_YLIM)
-# ax_zoom_pitch.set_title('Zoom: 0.8s to 1.2s', fontsize=MEDIUM_SIZE)
-# ax_zoom_pitch.set_xlabel('Time (s)')
 ax_zoom_pitch.grid(True, linestyle=':', alpha=0.5)
 ax_zoom_pitch.yaxis.tick_right()
 ax_zoom_pitch.yaxis.set_label_position('right')

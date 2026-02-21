@@ -1,7 +1,13 @@
+'''
+This script runs our InEKF with Partial Orientation Measurements, the MEKF, and the InEKF with full orientation measurements
+on the Holoocean simulation data, and generates the results for Figures 3 and 4 in the paper.
+
+As this script is running 3 different filters 100 times across the entire trajectory, it can take a while to run.
+Outputs are saved to an npz file for later plotting if needed without re-running the entire simulation. The generated plots are also saved to the figures folder.
+'''
 from pathlib import Path
 from rosbags.image import message_to_cvimage
 from rosbags.highlevel import AnyReader
-from matplotlib import pyplot as plt
 import numpy as np
 
 import sys
@@ -11,7 +17,7 @@ from tqdm import tqdm
 # Add the project root to the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from helpers.function_helpers import convert_filter_mus_to_rpy_xyz, compute_position_mae, imu_add_noise, gps_add_noise, heading_add_noise, add_initial_state_noise, plot_cov, plot_figure_3, plot_figure_4, plot_results, plot_results_cov
+from helpers.function_helpers import convert_filter_mus_to_rpy_xyz, compute_position_mae, imu_add_noise, gps_add_noise, heading_add_noise, add_initial_state_noise, plot_figure_3, plot_figure_4
 from src.core.jitter_buffer import JitterBuffer
 from src.core.image_handler import ImageProcessor
 
@@ -20,39 +26,25 @@ from src.estimators.multiplicative_ekf import MEKF
 
 from helpers.params import HolooceanConfigParams
 
-# from helpers.load_holoocean_ros_types import typestore as holoocean_typestore
-
-import matplotlib.pyplot as plt
-
 from scipy.spatial.transform import Rotation
 
-# from sim_image_handler import image_handler
-# from helpers.holoocean_constants import dist, mtx, unet_filepath, camera_height_sim as camera_height
-
 '''
-Topic: /holoocean/asv0/DVLSensorRange     | Type: holoocean_interfaces/msg/DVLSensorRange 
-Topic: /holoocean/asv0/DVLSensorVelocity  | Type: geometry_msgs/msg/TwistWithCovarianceStamped 
-Topic: /holoocean/asv0/DynamicsSensorIMU  | Type: sensor_msgs/msg/Imu 
-Topic: /holoocean/asv0/DynamicsSensorOdom | Type: nav_msgs/msg/Odometry 
-Topic: /holoocean/asv0/FrontCamera        | Type: sensor_msgs/msg/Image 
-Topic: /holoocean/asv0/GPSSensor          | Type: nav_msgs/msg/Odometry 
-Topic: /holoocean/asv0/IMUSensor          | Type: sensor_msgs/msg/Imu 
-Topic: /holoocean/asv0/IMUSensorBias      | Type: geometry_msgs/msg/TwistWithCovarianceStamped 
-Topic: /holoocean/asv0/LeftCamera         | Type: sensor_msgs/msg/Image 
-Topic: /holoocean/asv0/RightCamera        | Type: sensor_msgs/msg/Image 
-Topic: /holoocean/asv0/RotationSensor     | Type: geometry_msgs/msg/Vector3Stamped 
+Topic: /holoocean/asv0/FrontCamera        | Type: sensor_msgs/msg/Image             | Used for horizon measurement
+Topic: /holoocean/asv0/GPSSensor          | Type: nav_msgs/msg/Odometry             | Used for position measurement
+Topic: /holoocean/asv0/IMUSensor          | Type: sensor_msgs/msg/Imu               | Used for state propagation
+Topic: /holoocean/asv0/RotationSensor     | Type: geometry_msgs/msg/Vector3Stamped  | Used for heading measurement
+Topic: /holoocean/asv0/PoseSensor         | Type: nav_msgs/msg/Odometry             | Used for Ground Truth
 '''
 
 plot_images = False
 
-# path_to_bag = "data/holoocean_island_full_sensor_suite"
 path_to_bag = "data/holoocean_open_water_loop_waves_small_15x15"
 num_msgs = 0
 num_images = 0
 
 
 # # Parameters
-JITTER_THRESHOLD = 1_000_000_000  # 1000ms lookahead
+JITTER_THRESHOLD = 1_000_000_000  # ms lookahead
 config_params = HolooceanConfigParams()
 camera_processor = ImageProcessor(config_params.mtx, config_params.dist, config_params.img_width, config_params.img_height, camera_height=config_params.camera_height)
 
@@ -78,9 +70,10 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
     buffer = JitterBuffer(delay_ns=JITTER_THRESHOLD)
     first_timestamp = None
     simulation_enabled = False
-    waiting_threshold = 5  # 15 seconds
+    waiting_threshold = 5 # Simulation is a little noisy at the start as the vehicle drops into the water
     exit_flag = False
     ground_truth_poses = []
+
     # Initial random walk for IMU noise
     current_random_walk = np.zeros(6) + np.random.normal(0, config_params.init_cov[9:15, 9:15].diagonal()**0.5, size=6)
 
@@ -109,7 +102,6 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
                         init_state = np.array([np.deg2rad(rpy[0]), np.deg2rad(rpy[1]), np.deg2rad(rpy[2]), 0, 0, 0, msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z])  # [roll, pitch, yaw, vx, vy, vz, x, y, z]
                         ground_truth_poses.append((first_sim_timestamp, rpy[0], rpy[1], rpy[2], msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z))
                         
-                        # init_state_noisy = add_initial_state_noise(init_state, config_params.init_cov)
                         init_state_noisy = init_state
 
                         inEKF_full_traj = InEKF(config_params.init_cov, config_params.imu_noise_params, init_state=init_state_noisy, first_timestamp=first_sim_timestamp)
@@ -156,11 +148,7 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
                         MEKF_5hz_conv.imu_callback(imu_measurement)
                         MEKF_no_horizon.imu_callback(imu_measurement)
 
-                    # if timestamp - first_sim_timestamp > simulation_length_s:
-                    #     exit_flag = True
-
                 elif connection.topic == "/holoocean/asv0/GPSSensor":
-                    # msg = reader.deserialize(rawdata, connection.msgtype)
                     timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
 
                     gps_measurement = GPSMeasurement(timestamp_sec=msg.header.stamp.sec,
@@ -182,14 +170,8 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
                         MEKF_no_horizon.gps_callback(gps_measurement)
                 
                 elif connection.topic == "/holoocean/asv0/RotationSensor": # Used for heading measurement
-                    # Type: geometry_msgs/msg/Vector3Stamped
-                    # msg = reader.deserialize(rawdata, connection.msgtype)
-                    # num_rotation_sensor_msgs += 1 # TODO: UPDATE Bag to be 1 HZ!
-                    # if num_rotation_sensor_msgs % 25 != 0:
-                    #     continue
-
                     timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-                    yaw = msg.vector.z  # Assuming Z is yaw
+                    yaw = msg.vector.z  
                     heading_meas = HeadingMeasurement(timestamp_sec=msg.header.stamp.sec,
                                                             timestamp_nsec=msg.header.stamp.nanosec,
                                                             heading=np.deg2rad(yaw),
@@ -210,9 +192,6 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
 
                 elif connection.topic == "/holoocean/asv0/FrontCamera":
                     num_images += 1
-                    # if not num_images % 4 == 0: # TODO: Fix this!
-                        # continue
-                    # msg = reader.deserialize(rawdata, connection.msgtype)
                     timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
 
                     # Avoid re-processing images for monte carlo simulations
@@ -222,20 +201,17 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
                         dict_horizon_measurements[timestamp] = horizon_observation  # Store first result only
                     else:
                         horizon_observation = dict_horizon_measurements[timestamp]
-                    # cv_image = message_to_cvimage(msg, "bgr8")
-                    # horizon_observation = camera_processor.lsd_image_callback(cv_image, debug=plot_images)
 
                     if horizon_observation.valid:
                         last_horizon_observation = horizon_observation
                         inEKF_full_traj.image_callback(horizon_observation)
                         MEKF_full_traj.image_callback(horizon_observation)
-                        if num_images % 4 == 0:
+                        if num_images % 4 == 0: # Grab every 4th image for convergence plots
                             if timestamp - first_sim_timestamp < convergence_plot_length_seconds:
                                 inEKF_5hz_conv.image_callback(horizon_observation)
                                 MEKF_5hz_conv.image_callback(horizon_observation)
                                         
                 elif connection.topic == "/holoocean/asv0/PoseSensor": 
-                    # msg = reader.deserialize(rawdata, connection.msgtype)
                     timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
                     pose_meas = PoseMeasurement(timestamp_sec=msg.header.stamp.sec,
                                             timestamp_nsec=msg.header.stamp.nanosec,
@@ -253,31 +229,20 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
                                             msg.pose.pose.orientation.z,
                                             msg.pose.pose.orientation.w]).as_euler('xyz', degrees=True)
                     pos = pose_meas.position
-                    # self.ground_truth_poses.append((pose_measurement.timestamp, rpy, pose_measurement.position))
                     ground_truth_poses.append((timestamp, rpy[0], rpy[1], rpy[2], pos[0], pos[1], pos[2]))
 
             if exit_flag:
                 break
-            # if num_images_front >= 20:
-            #     break    
-        
-        # manager.plot_inekf_results()
-
 
         for final_msg in buffer.flush(): # Clear the buffer for now
         # Process the last few bits of data if any
             pass
-    
-    # evaluate the simulation
-    # inekf_full_traj_maes = [] # Tracking MAE for each simulation across entire trajectory
-    # inekf_5hz_conv_trajectories = [] # Tracking convergence over first N seconds
-    # inekf_no_horizon_trajectories = [] # Tracking convergence over first N seconds
+
     inekf_5hz_conv_trajectories.append(convert_filter_mus_to_rpy_xyz(inEKF_5hz_conv))
     inekf_no_horizon_trajectories.append(convert_filter_mus_to_rpy_xyz(inEKF_no_horizon))
     mekf_5hz_conv_trajectories.append(convert_filter_mus_to_rpy_xyz(MEKF_5hz_conv))
     mekf_no_horizon_trajectories.append(convert_filter_mus_to_rpy_xyz(MEKF_no_horizon))
 
-    # Uncomment these!
     error_xy, error_z, error_rpy = compute_position_mae(convert_filter_mus_to_rpy_xyz(inEKF_full_traj), np.array(ground_truth_poses))
     error_xy_full_pose, error_z_full_pose, error_rpy_full_pose = compute_position_mae(convert_filter_mus_to_rpy_xyz(inEKF_full_pose_full_traj), np.array(ground_truth_poses))
     error_xy_mekf, error_z_mekf, error_rpy_mekf = compute_position_mae(convert_filter_mus_to_rpy_xyz(MEKF_full_traj), np.array(ground_truth_poses))
@@ -289,7 +254,7 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
 
 
 # Save to npz for later plotting
-np.savez("inekf_holoocean_simulation_results.npz",
+np.savez("figure_data/inekf_holoocean_simulation_results.npz",
         inekf_full_traj_maes=np.array(inekf_full_traj_maes),
         inEKF_full_pose_full_traj_maes=np.array(inEKF_full_pose_full_traj_maes),
         inekf_5hz_conv_trajectories=np.array(inekf_5hz_conv_trajectories, dtype=object),
@@ -299,20 +264,6 @@ np.savez("inekf_holoocean_simulation_results.npz",
         mekf_no_horizon_trajectories=np.array(mekf_no_horizon_trajectories, dtype=object),
         gt_data=np.array(ground_truth_poses)
         )
-
-# np.savez("inekf_holoocean_simulation_results_convergence.npz",
-#         inekf_5hz_conv_trajectories=np.array(inekf_5hz_conv_trajectories, dtype=object),
-#         inekf_no_horizon_trajectories=np.array(inekf_no_horizon_trajectories, dtype=object),
-#         mekf_5hz_conv_trajectories=np.array(mekf_5hz_conv_trajectories, dtype=object),
-#         mekf_no_horizon_trajectories=np.array(mekf_no_horizon_trajectories, dtype=object),
-#         gt_data=np.array(ground_truth_poses)
-#         )
-
-# TODO: Uncomment all of these:
-plot_results(MEKF_full_traj, gt_data=np.array(ground_truth_poses), show=False, title="MEKF Full Trajectory", horizon_dict=dict_horizon_measurements)
-plot_results(inEKF_full_traj, gt_data=np.array(ground_truth_poses), show=False, title="InEKF Full Trajectory", horizon_dict=dict_horizon_measurements)
-plot_cov(inEKF_full_traj, title="InEKF Full Trajectory Covariance", show=False)
-plot_cov(MEKF_full_traj, title="MEKF Full Trajectory Covariance", show=False)
 
 print("InEKF Full Trajectory MAEs (XY, Z, RPY) over simulations:", np.mean(inekf_full_traj_maes, axis=0))
 plot_figure_3(np.array(inekf_full_traj_maes), np.array(mekf_full_traj_maes), np.array(inEKF_full_pose_full_traj_maes), show_plot=False)

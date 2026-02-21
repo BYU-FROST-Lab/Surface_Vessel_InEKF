@@ -43,7 +43,7 @@ num_msgs = 0
 num_images = 0
 
 
-# # Parameters
+# Parameters
 JITTER_THRESHOLD = 1_000_000_000  # ms lookahead
 config_params = HolooceanConfigParams()
 camera_processor = ImageProcessor(config_params.mtx, config_params.dist, config_params.img_width, config_params.img_height, camera_height=config_params.camera_height)
@@ -54,9 +54,14 @@ from src.core.measurements import * # Import measurement types
 # It's infeasible to process every image for every monte carlo simulation, so we store the first result here
 dict_horizon_measurements = {} # indexed by timestamp
 
+print("Running the full Monte Carlo simulations can take awhile, if you just want the data you can find\
+      how to download it in the README")
+
+print("You can also decrease the number of simulations or the length of the trajectory used.")
+
 num_simulations = 100
 convergence_plot_length_seconds = 10
-simulation_length_s = 60
+simulation_length_s = 172
 
 inekf_full_traj_maes = [] # Tracking MAE for each simulation across entire trajectory
 mekf_full_traj_maes = []
@@ -65,6 +70,7 @@ inekf_5hz_conv_trajectories = [] # Tracking convergence over first N seconds
 inekf_no_horizon_trajectories = [] # Tracking convergence over first N seconds
 mekf_5hz_conv_trajectories = []
 mekf_no_horizon_trajectories = []
+
 
 for i in tqdm(range(num_simulations), desc="Simulations"):
     buffer = JitterBuffer(delay_ns=JITTER_THRESHOLD)
@@ -147,6 +153,10 @@ for i in tqdm(range(num_simulations), desc="Simulations"):
                         inEKF_no_horizon.imu_callback(imu_measurement)
                         MEKF_5hz_conv.imu_callback(imu_measurement)
                         MEKF_no_horizon.imu_callback(imu_measurement)
+
+                    if timestamp - first_sim_timestamp > simulation_length_s:
+                        exit_flag = True
+                        break
 
                 elif connection.topic == "/holoocean/asv0/GPSSensor":
                     timestamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9

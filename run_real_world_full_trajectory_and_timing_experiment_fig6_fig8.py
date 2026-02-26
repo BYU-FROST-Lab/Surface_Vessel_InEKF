@@ -10,11 +10,26 @@ from pathlib import Path
 from rosbags.image import message_to_cvimage
 from rosbags.highlevel import AnyReader
 from matplotlib import pyplot as plt
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
 import numpy as np
 import time
 
 import sys
-import os
+
+core_path = os.path.abspath("./src/core")
+sys.path.append(core_path)
+try:
+    import vision_cpp
+
+except ImportError as e:
+    print(f"❌ Could not find the module: {e}")
+    print(f"Check if the .so file is in: {os.getcwd()}")
+except Exception as e:
+    print(f"❌ Something else went wrong: {e}")
+
 
 from tqdm import tqdm
 # Add the project root to the path
@@ -36,7 +51,7 @@ from scipy.spatial.transform import Rotation
 
 plot_images = False
 
-path_to_bag = "data/nav_and_forward_cam_seg"
+path_to_bag = "data/nav_and_forward_cam_seg_1"
 
 num_msgs = 0
 num_images = 0
@@ -54,12 +69,14 @@ inekf_full_pose_update_timing = []
 JITTER_THRESHOLD = 700_000_000  # 0.7 second lookahead
 config_params_sbg = RealWorldSBGConfigParams()
 config_params_oak = RealWorldOAKConfigParams()
-camera_processor = ImageProcessor(config_params_sbg.mtx, config_params_sbg.dist, config_params_sbg.img_width, config_params_sbg.img_height, camera_height=config_params_sbg.camera_height)
+# camera_processor = ImageProcessor(config_params_sbg.mtx, config_params_sbg.dist, config_params_sbg.img_width, config_params_sbg.img_height, camera_height=config_params_sbg.camera_height)
+camera_processor = vision_cpp.ImageProcessor(config_params_sbg.mtx, config_params_sbg.dist, config_params_sbg.img_width, config_params_sbg.img_height, config_params_sbg.camera_height)
+
 
 from src.core.measurements import * # Import measurement types
 
 convergence_plot_length_seconds = 10
-simulation_length_s = 80
+simulation_length_s = 40
 
 inekf_full_traj_maes = [] # Tracking MAE for each simulation across entire trajectory
 mekf_full_traj_maes = []
@@ -286,7 +303,8 @@ with AnyReader([Path(path_to_bag)]) as reader:
                 vz = msg.velocity.z
 
                 sbg_nav.append((timestamp, x, y, alt, vx, vy, vz))
-  
+        # if exit_flag:
+        #     break
     for final_msg in buffer.flush(): # Clear the buffer for now
     # Process the last few bits of data if any
         pass

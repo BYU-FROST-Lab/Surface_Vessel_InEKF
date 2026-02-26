@@ -2,9 +2,13 @@
 *.mcap
 *.db3
 *.json
+*.so 
 
 # Data folder to large for repo, can be downloaded, see README for details
 /data
+
+src/cpp/build/*
+!src/cpp/build/.gitkeep
 
 # Figure data and logs, can be downloaded, see README for details
 figure_data/real_world_convergence_data.pkl

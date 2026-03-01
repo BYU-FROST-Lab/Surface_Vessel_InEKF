@@ -36,7 +36,7 @@ from scipy.spatial.transform import Rotation
 
 plot_images = False
 
-path_to_bag = "data/nav_and_forward_cam_seg"
+path_to_bag = "data/real_world_data"
 
 num_msgs = 0
 num_images = 0

@@ -15,14 +15,34 @@ To set up the environment and retrieve the experimental datasets, execute the fo
 # Install required Python libraries
 pip install -r requirements.txt
 
-# Download and extract experimental data into the data subfolder
-wget -P data/ [https://your-data-link.com/maritime_dataset.zip](https://your-data-link.com/maritime_dataset.zip)
-unzip data/maritime_dataset.zip -d data/
+mkdir -p data
+
+# Download Sim Data
+wget "https://byu.box.com/shared/static/85ndjvk403ty71vrkpxcy6zn1gws9wu5.zip" -O data/holoocean_sim_data.zip && \
+unzip data/holoocean_sim_data.zip -d data/ && \
+rm data/holoocean_sim_data.zip
+
+# Download Real World Data
+wget "https://byu.box.com/shared/static/u2jojnsbanulqeh080gfq4kzra834ugu.zip" -O data/real_world_data.zip && \
+unzip data/real_world_data.zip -d data/ && \
+rm data/real_world_data.zip
 ```
 
 Run the following python scripts to generate new data and their respective figures.
 
-If you just want to reproduce the figures in the paper using the data provided, run `python3 helpers/function_helpers.py`
+`python3 run_sim_experiments_fig3_fig4.py` \
+`python3 run_rw_experiment_horizon_accuracy_fig5.py` \
+`python3 run_real_world_full_trajectory_and_timing_experiment_fig6_fig8.py` \
+`python3 run_real_world_convergence_experiment_fig7.py`
+
+If you just want to reproduce the figures in the paper using the data provided, download the appropriate data and run the appropriate python file
+
+```
+wget "https://byu.box.com/shared/static/z4bfwa0a0z7i36hzl0q10nd8bjnn9or0.pkl" -O figure_data/real_world_convergence_data.pkl && \
+wget "https://byu.box.com/shared/static/j2qc1dxbl1y8hma23mqmaoyt4a7q524q.npz" -O figure_data/inekf_holoocean_simulation_results.npz
+
+python3 helpers/function_helpers.py
+```
 
 ## Key Research Contributions
 ### 1. Partial Orientation Integration in the InEKF

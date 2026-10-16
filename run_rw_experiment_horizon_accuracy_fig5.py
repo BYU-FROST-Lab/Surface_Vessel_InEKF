@@ -31,7 +31,7 @@ from scipy.spatial.transform import Rotation
 
 plot_images = False
 
-path_to_bag = "data/nav_and_forward_cam_seg"
+path_to_bag = "data/real_world_data"
 num_msgs = 0
 
 # # Parameters
@@ -239,8 +239,10 @@ import matplotlib as mpl
 cache_dir = mpl.get_cachedir()
 shutil.rmtree(cache_dir)
 
-plt.rcParams['font.family'] = 'serif'
-plt.rcParams['font.serif'] = ['sans-serif'] + plt.rcParams['font.serif']
+# plt.rcParams['font.family'] = 'serif'
+# plt.rcParams['font.serif'] = ['sans-serif'] + plt.rcParams['font.serif']
+plt.rcParams["font.family"] = "sans-serif"
+plt.rcParams["mathtext.fontset"] = "stix"
 
 from matplotlib.patches import Rectangle
 from matplotlib.patches import ConnectionPatch

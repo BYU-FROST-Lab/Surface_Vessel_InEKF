@@ -851,6 +851,14 @@ def plot_figure_7_rw_convergence(sbg_inekf_mus, oak_inekf_mus, sbg_mekf_mus, oak
 
     return
 
+# A helper function to filter a single array
+def prune_outliers(data, std_devs=3):
+    data = np.array(data)
+    mean = np.mean(data)
+    std = np.std(data)
+    # Boolean mask for values within the range
+    return data[np.abs(data - mean) <= (std_devs * std)]
+
 def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predict_timing, inekf_heading_update_timing, mekf_heading_update_timing, inekf_rp_update_timing, mekf_rp_update_timing, inekf_full_pose_update_timing, show=True):    
     print("Timing Results (s) for roll pitch estimation from Horizon:")
     print(f"Average time for image callback function was {np.mean(image_function_timing)*1000:.4f} ms, with a standard deviation of {np.std(image_function_timing)*1000:.4f} ms over {len(image_function_timing)} runs.")
@@ -874,7 +882,12 @@ def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predi
         ('Full Ori.\nUpdate', 'InEKF', inekf_full_pose_update_timing),
     ]
 
-    for task, filter_type, timings in groups:
+    pruned_groups = [
+       (label, model, prune_outliers(timing_data))
+        for label, model, timing_data in groups
+    ]   
+
+    for task, filter_type, timings in pruned_groups:
         for t in timings:
             data_list.append({'Task': task, 'Filter': filter_type, 'Time (ms)': t * 1000})
 
@@ -883,8 +896,8 @@ def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predi
     # 1. IJRR / IEEE Single-Column Specifications
     # 3.5 inches is the standard column width. 
     # Height is reduced to keep the aspect ratio tight.
-    plt.rcParams['font.family'] = 'serif'
-    plt.rcParams['font.serif'] = ['sans-serif'] + plt.rcParams['font.serif']
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["mathtext.fontset"] = "stix"
     plt.rcParams['pdf.fonttype'] = 42
     
     FIG_WIDTH = 241.53897 / 72.27  # Convert from points to inches
@@ -902,6 +915,7 @@ def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predi
         inner=None, 
         palette="colorblind",
         linewidth=0.8,
+        cut=0,
         density_norm='width',
         width=0.8,        # Increases the footprint of the violin on the x-axis
         ax=ax
@@ -912,7 +926,7 @@ def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predi
 
 
 
-    ax.set_ylim(0, 5) 
+    ax.set_ylim(0, 7) 
 
     ax.set_ylabel("Execution Time (ms)", fontsize=10)
     ax.set_xlabel("", fontsize=8)
@@ -929,7 +943,7 @@ def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predi
     handles, labels = ax.get_legend_handles_labels()
     handles.append(fo_patch)
     labels.append("InEKF FO")
-    ax.legend(handles=handles, labels=labels, loc='upper right', frameon=True)
+    ax.legend(handles=handles, labels=labels, loc='upper right', bbox_to_anchor=(1.01, 1.02), frameon=True)
     plt.tight_layout(pad=0.5)
 
     if show:

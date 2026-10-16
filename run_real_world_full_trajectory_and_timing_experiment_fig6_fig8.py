@@ -9,14 +9,14 @@ This script generates figures 6 and 8 within the paper.
 from pathlib import Path
 from rosbags.image import message_to_cvimage
 from rosbags.highlevel import AnyReader
-from matplotlib import pyplot as plt
+import os
+import sys
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
 import numpy as np
 import time
 
-import sys
-import os
-
-from tqdm import tqdm
 # Add the project root to the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
@@ -30,13 +30,11 @@ from helpers.load_sbg_types import typestore as sbg_typestore
 
 from helpers.params import RealWorldOAKConfigParams, RealWorldSBGConfigParams
 
-import matplotlib.pyplot as plt
-
 from scipy.spatial.transform import Rotation
 
 plot_images = False
 
-path_to_bag = "data/nav_and_forward_cam_seg"
+path_to_bag = "data/real_world_data"
 
 num_msgs = 0
 num_images = 0

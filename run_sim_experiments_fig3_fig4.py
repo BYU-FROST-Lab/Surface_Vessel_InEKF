@@ -38,7 +38,7 @@ Topic: /holoocean/asv0/PoseSensor         | Type: nav_msgs/msg/Odometry         
 
 plot_images = False
 
-path_to_bag = "data/holoocean_open_water_loop_waves_small_15x15"
+path_to_bag = "data/holoocean_sim_data"
 num_msgs = 0
 num_images = 0
 

@@ -42,7 +42,7 @@ In this next figure, we demonstrate that while the InEKF and MEKF achieve nearly
 ### 3. Real-World Validation and Assessment of Horizon-inferred Roll & Pitch Accuracy
 While prior works have qualitatively observed that horizon-based tracking is more robust than raw IMU integration, this study provides a rigorous numerical characterization of the error. We validated our vision-based observations against industrial-grade ground truth (SBG Ellipse-D) in real-world maritime environments.
 
-<img src="figures/horizon_comparison_test.png" width="35%" alt="Horizon Measurement Accuracy">
+<img src="figures/horizon_comparison_test.png" width="25%" alt="Horizon Measurement Accuracy">
 
 Our analysis confirms that horizon-derived attitude acts as a powerful "equalizer" for low-cost hardware. By providing a stable geometric constraint, the algorithm allows consumer-grade sensors (like a low cost BNO086 IMU) to achieve mean attitude accuracy comparable to industrial-grade units, effectively mitigating the stochastic drift and noise floor inherent in lower-cost inertial sensors.
 

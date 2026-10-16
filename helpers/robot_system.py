@@ -64,15 +64,15 @@ class WAMVASV:
         og_X = np.block([[Rnew, vnew.reshape(-1,1), pnew.reshape(-1,1)],
                         [np.zeros((2,3)), np.eye(2)]])
 
-        # U composition
-        dR = expm( self.cross( omega*dt ))
-        dv = (a + g)*dt
-        dp = 0.5 * (a+g)*dt**2
-        U = np.eye(5)
-        U[:3,:3] = dR
-        U[:3,3] = dv.reshape(-1)
-        U[:3,4] = dp.reshape(-1)
-        new_x = state @ U
+        # # U composition
+        # dR = expm( self.cross( omega*dt ))
+        # dv = (a + g)*dt
+        # dp = 0.5 * (a+g)*dt**2
+        # U = np.eye(5)
+        # U[:3,:3] = dR
+        # U[:3,3] = dv.reshape(-1)
+        # U[:3,4] = dp.reshape(-1)
+        # new_x = state @ U
 
         # R_rot = R @ R_90_ccw # Trying to figure out errors
         # a[0], a[1] = a[1], -a[0] # Trying to figure out errors

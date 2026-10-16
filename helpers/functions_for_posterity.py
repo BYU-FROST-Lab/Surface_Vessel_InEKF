@@ -169,6 +169,8 @@ def plot_results_comparison(filter1, filter2, title="", show=True, gps_timestamp
     fig, axs = plt.subplots(3, 3)
     fig.suptitle(title)
 
+    timestamps1 = timestamps1[1:]
+
     # plot xyz position
     axs[0, 0].plot(timestamps1, mus1[:, 0, 4], marker='x', linestyle='-', markersize=3, color='r', label=filter1_name)
     axs[0, 0].plot(timestamps2, mus2[:, 0, 4], marker='x', linestyle='-', markersize=3, color='b', label=filter2_name)

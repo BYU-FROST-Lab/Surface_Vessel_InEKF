@@ -18,7 +18,7 @@ class InEKF:
     # def __init__(self, init_quat, init_xyz, init_vel, first_timestamp=0, est_bias=True, R_orientation_sen=None, init_sigma=sbg_Q, Q=sbg_Q, init_bias=False):
     def __init__(self, init_sigma=None, Q=None, init_state=None, first_timestamp=0, est_bias=True, update_rate=200):
 
-        self.est_bias = est_bias # Can turn of Bias estimation
+        self.est_bias = est_bias # Can turn off Bias estimation
         self.sys = WAMVASV(Q)
         self.update_rate = update_rate
                

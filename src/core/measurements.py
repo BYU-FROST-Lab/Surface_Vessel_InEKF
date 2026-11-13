@@ -28,6 +28,8 @@ class HeadingMeasurement:
     timestamp_nsec: int
     heading: float  # In radians
     heading_cov: float  # Variance
+    pitch: float  # In radians
+    pitch_cov: float  # Variance
 
 @dataclass(frozen=True)
 class HorizonObservation:

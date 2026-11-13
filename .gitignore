@@ -10,9 +10,9 @@
 figure_data/real_world_convergence_data.pkl
 figure_data/inekf_holoocean_simulation_results.npz
 
-
 *.webm
 
+*.pkl
 *.zip
 
 

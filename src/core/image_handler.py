@@ -154,8 +154,8 @@ class ImageProcessor:
             pitch_rad=pitch,
             # roll_var=np.deg2rad(0.18), #0.02, #0.003
             # pitch_var=np.deg2rad(0.18) # 0.02
-            roll_var=np.deg2rad(0.15),
-            pitch_var=np.deg2rad(0.15)
+            roll_var=np.deg2rad(0.15)**2,
+            pitch_var=np.deg2rad(0.15)**2
             # roll_var=np.deg2rad(1), #0.02, #0.003
             # pitch_var=np.deg2rad(1) # 0.02
         )

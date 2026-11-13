@@ -9,7 +9,7 @@ import os
 # Add the project root to the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from helpers.function_helpers import fuse_sbg_ekf_msgs, gps_add_noise, heading_add_noise, plot_figure_7_rw_convergence, convert_gps_to_xyz, sbg_ekf_to_filter
+from helpers.function_helpers import fuse_sbg_ekf_msgs, gps_add_noise, heading_add_noise, plot_figure_7_rw_convergence, report_real_world_convergence, convert_gps_to_xyz, sbg_ekf_to_filter
 from src.core.jitter_buffer import JitterBuffer
 from src.core.image_handler import ImageProcessor
 
@@ -40,6 +40,9 @@ from src.core.measurements import * # Import measurement types
 
 convergence_plot_length_seconds = 2
 convergence_plot_gap_seconds = 0.1
+convergence_angle_tol_deg = 10.0
+convergence_position_tol_m = 4.0
+convergence_dwell_s = 0.5
 
 end_time = 0
 
@@ -54,6 +57,7 @@ oak_timestamps = []
 gt_pose_timestamps = []
 
 gt_poses = []
+state_convergence_runs = []
 
 buffer = JitterBuffer(delay_ns=JITTER_THRESHOLD)
 first_timestamp = None
@@ -119,10 +123,12 @@ with AnyReader([Path(path_to_bag)]) as reader:
                     first_timestamp = timestamp
                     
                     inEKF_sbg_full_traj = InEKF(config_params_sbg.init_cov_high, config_params_sbg.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp)
+                    inEKF_sbg_full_traj_right = InEKF(config_params_sbg.init_cov_high, config_params_sbg.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp, left=False)
                     MEKF_sbg_full_traj = MEKF(config_params_sbg.init_cov_high, config_params_sbg.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp)
                     inEKF_sbg_full_pose_full_traj = InEKF(config_params_sbg.init_cov_high, config_params_sbg.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp)
                     
                     inEKF_oak_full_traj = InEKF(config_params_oak.init_cov_high, config_params_oak.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp, update_rate=178)
+                    inEKF_oak_full_traj_right = InEKF(config_params_oak.init_cov_high, config_params_oak.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp, update_rate=178, left=False)
                     MEKF_oak_full_traj = MEKF(config_params_oak.init_cov_high, config_params_oak.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp, update_rate=178)
                     inEKF_oak_full_pose_full_traj = InEKF(config_params_oak.init_cov_high, config_params_oak.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp, update_rate=178)
                     
@@ -145,6 +151,8 @@ with AnyReader([Path(path_to_bag)]) as reader:
                                                             msg.linear_acceleration.z]))
                 
                 inEKF_sbg_full_traj.imu_callback(imu_measurement)
+                inEKF_sbg_full_traj_right.imu_callback(imu_measurement)
+                
                 inEKF_sbg_full_pose_full_traj.imu_callback(imu_measurement)
                 MEKF_sbg_full_traj.imu_callback(imu_measurement)
 
@@ -167,6 +175,7 @@ with AnyReader([Path(path_to_bag)]) as reader:
                                             accel = linear_accel)
                 
                 inEKF_oak_full_traj.imu_callback(imu_measurement)
+                inEKF_oak_full_traj_right.imu_callback(imu_measurement)
                 inEKF_oak_full_pose_full_traj.imu_callback(imu_measurement)
                 MEKF_oak_full_traj.imu_callback(imu_measurement)
                 
@@ -191,10 +200,12 @@ with AnyReader([Path(path_to_bag)]) as reader:
                 gps_measurement = gps_add_noise(gps_measurement) # Adding noise to corrupt RTK GPS measurement for testing
 
                 inEKF_sbg_full_traj.gps_callback(gps_measurement)
+                inEKF_sbg_full_traj_right.gps_callback(gps_measurement)
                 MEKF_sbg_full_traj.gps_callback(gps_measurement)
                 inEKF_sbg_full_pose_full_traj.gps_callback(gps_measurement)
 
                 inEKF_oak_full_traj.gps_callback(gps_measurement)
+                inEKF_oak_full_traj_right.gps_callback(gps_measurement)
                 MEKF_oak_full_traj.gps_callback(gps_measurement)
                 inEKF_oak_full_pose_full_traj.gps_callback(gps_measurement)
    
@@ -211,18 +222,25 @@ with AnyReader([Path(path_to_bag)]) as reader:
                 heading = msg.true_heading - 180  # Degree
                 heading_acc = msg.true_heading_acc # # 1 sigma True heading estimated accuracy
 
-                # yaw = msg.vector.z  # Assuming Z is yaw
+                pitch_measurement = -1 * msg.pitch - 3.94
+                pitch_acc = msg.pitch_acc
+
                 heading_meas = HeadingMeasurement(timestamp_sec=msg.header.stamp.sec,
                                                         timestamp_nsec=msg.header.stamp.nanosec,
                                                         heading=np.deg2rad(heading),
-                                                        heading_cov=config_params_sbg.heading_noise_var)
+                                                        # heading_cov=config_params_sbg.heading_noise_var,
+                                                        heading_cov=np.deg2rad(heading_acc)**2,
+                                                        pitch=np.deg2rad(pitch_measurement),
+                                                        pitch_cov=np.deg2rad(pitch_acc)**2)
                 
                 heading_meas = heading_add_noise(heading_meas)
 
-                inEKF_sbg_full_traj.heading_callback(heading_meas)
-                MEKF_sbg_full_traj.heading_callback(heading_meas)
-                inEKF_oak_full_traj.heading_callback(heading_meas)
-                MEKF_oak_full_traj.heading_callback(heading_meas)
+                inEKF_sbg_full_traj.heading_callback_vec(heading_meas)
+                inEKF_sbg_full_traj_right.heading_callback_vec(heading_meas)
+                MEKF_sbg_full_traj.heading_callback_mekf_euler(heading_meas)
+                inEKF_oak_full_traj.heading_callback_vec(heading_meas)
+                inEKF_oak_full_traj_right.heading_callback_vec(heading_meas)
+                MEKF_oak_full_traj.heading_callback_mekf_euler(heading_meas)
 
                 if last_horizon_observation is not None:
                     inEKF_sbg_full_pose_full_traj.orientation_callback_combined(heading_meas, last_horizon_observation)
@@ -240,10 +258,13 @@ with AnyReader([Path(path_to_bag)]) as reader:
                 horizon_observation = camera_processor.lsd_image_callback(cv_image, debug=plot_images)
                 if horizon_observation.valid:
                     last_horizon_observation = horizon_observation
-                    inEKF_sbg_full_traj.image_callback(horizon_observation)
-                    MEKF_sbg_full_traj.image_callback(horizon_observation)
-                    inEKF_oak_full_traj.image_callback(horizon_observation)
-                    MEKF_oak_full_traj.image_callback(horizon_observation)
+                    inEKF_sbg_full_traj.image_callback_gravity_vec(horizon_observation)
+                    inEKF_sbg_full_traj_right.image_callback_gravity_vec(horizon_observation)
+                    
+                    MEKF_sbg_full_traj.image_callback_mekf_euler(horizon_observation)
+                    inEKF_oak_full_traj.image_callback_gravity_vec(horizon_observation)
+                    inEKF_oak_full_traj_right.image_callback_gravity_vec(horizon_observation)
+                    MEKF_oak_full_traj.image_callback_mekf_euler(horizon_observation)
                 else:
                     last_horizon_observation = None
                     # if num_images % 4 == 0:
@@ -290,8 +311,18 @@ with AnyReader([Path(path_to_bag)]) as reader:
             gt_as_filter = sbg_ekf_to_filter(fuse_sbg_ekf_msgs(np.array(sbg_rpy), np.array(sbg_nav)))
             gt_poses.append(np.array(gt_as_filter.mus))
             gt_pose_timestamps.append(np.array(gt_as_filter.timestamps))
+            state_convergence_runs.append({
+                "SBG InEKF (L)": inEKF_sbg_full_traj,
+                "SBG InEKF (R)": inEKF_sbg_full_traj_right,
+                "SBG MEKF": MEKF_sbg_full_traj,
+                "SBG InEKF FO": inEKF_sbg_full_pose_full_traj,
+                "OAK InEKF (L)": inEKF_oak_full_traj,
+                "OAK InEKF (R)": inEKF_oak_full_traj_right,
+                "OAK MEKF": MEKF_oak_full_traj,
+                "OAK InEKF FO": inEKF_oak_full_pose_full_traj,
+            })
 
-        if num_simulations > 100: # For development purposes, can limit to less
+        if num_simulations > 90: # For development purposes, can limit to less
             break
             
     for final_msg in buffer.flush(): # Clear the buffer for now
@@ -314,3 +345,10 @@ with open("real_world_convergence_data.pkl", "wb") as f:
     }, f)
 
 plot_figure_7_rw_convergence(sbg_inekf_mus, oak_inekf_mus, sbg_mekf_mus, oak_mekf_mus, gt_poses, sbg_timestamps, oak_timestamps, gt_pose_timestamps, show=True)
+
+report_real_world_convergence(
+    state_convergence_runs, gt_poses, gt_pose_timestamps,
+    angle_tol_deg=convergence_angle_tol_deg,
+    position_tol_m=convergence_position_tol_m,
+    dwell_s=convergence_dwell_s,
+)

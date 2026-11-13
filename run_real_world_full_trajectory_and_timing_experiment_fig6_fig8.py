@@ -1,7 +1,7 @@
 '''
 This script evaluates the error and timing of the InEKF and MEKF across a full trajectory of real-world data.
-The collected data lasts over 4 minutes, and the script takes about 4 minutes to run, processing 6 different filter configurations
-(SBG InEKF, SBG MEKF, SBG InEKF with full orientation updates, OAK InEKF, OAK MEKF, OAK InEKF with full orientation updates).
+The collected data lasts over 4 minutes, and the script takes about 4 minutes to run, processing eight filter configurations. Each IMU has left- and right-invariant
+InEKF, MEKF, and full-orientation InEKF configurations.
 
 This script generates figures 6 and 8 within the paper.
 '''
@@ -34,17 +34,19 @@ from scipy.spatial.transform import Rotation
 
 plot_images = False
 
-path_to_bag = "data/real_world_data"
+path_to_bag = "data/nav_and_forward_cam_seg" if Path("data/nav_and_forward_cam_seg").exists() else "data/real_world_data"
 
 num_msgs = 0
 num_images = 0
 
 image_function_timing = []
 inekf_predict_timing = []
+inekf_right_predict_timing = []
 mekf_predict_timing = []
 inekf_heading_update_timing = []
 mekf_heading_update_timing = []
 inekf_rp_update_timing = []
+inekf_right_rp_update_timing = []
 mekf_rp_update_timing = []
 inekf_full_pose_update_timing = []
 
@@ -81,7 +83,7 @@ num_gps_msgs = 0
 
 last_horizon_observation = None
 
-with AnyReader([Path(path_to_bag)]) as reader:
+with AnyReader([Path(path_to_bag)], default_typestore=sbg_typestore) as reader:
     connections = [x for x in reader.connections]
 
     for connection, timestamp, rawdata in reader.messages(connections=connections):
@@ -110,10 +112,12 @@ with AnyReader([Path(path_to_bag)]) as reader:
                 init_state = np.array([np.deg2rad(rpy[0]), np.deg2rad(rpy[1]), np.deg2rad(rpy[2]), 0, 0, 0, x, y, alt])  # [roll, pitch, yaw, vx, vy, vz, x, y, z]
 
                 inEKF_sbg_full_traj = InEKF(config_params_sbg.init_cov, config_params_sbg.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp)
+                inEKF_sbg_full_traj_right = InEKF(config_params_sbg.init_cov, config_params_sbg.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp, left=False)
                 MEKF_sbg_full_traj = MEKF(config_params_sbg.init_cov, config_params_sbg.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp)
                 inEKF_sbg_full_pose_full_traj = InEKF(config_params_sbg.init_cov, config_params_sbg.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp)
                 
                 inEKF_oak_full_traj = InEKF(config_params_oak.init_cov, config_params_oak.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp, update_rate=178)
+                inEKF_oak_full_traj_right = InEKF(config_params_oak.init_cov, config_params_oak.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp, update_rate=178, left=False)
                 MEKF_oak_full_traj = MEKF(config_params_oak.init_cov, config_params_oak.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp, update_rate=178)
                 inEKF_oak_full_pose_full_traj = InEKF(config_params_oak.init_cov, config_params_oak.imu_noise_params, init_state=init_state, first_timestamp=first_timestamp, update_rate=178)
                     
@@ -146,10 +150,13 @@ with AnyReader([Path(path_to_bag)]) as reader:
                                                             msg.linear_acceleration.y,
                                                             msg.linear_acceleration.z]))
                 
-                inEKF_sbg_full_traj.imu_callback(imu_measurement)
                 start_time = time.time()
-                inEKF_sbg_full_pose_full_traj.imu_callback(imu_measurement)
+                inEKF_sbg_full_traj.imu_callback(imu_measurement)
                 inekf_predict_timing.append(time.time() - start_time)
+                start_time = time.time()
+                inEKF_sbg_full_traj_right.imu_callback(imu_measurement)
+                inekf_right_predict_timing.append(time.time() - start_time)
+                inEKF_sbg_full_pose_full_traj.imu_callback(imu_measurement)
                 start_time = time.time()
                 MEKF_sbg_full_traj.imu_callback(imu_measurement)
                 mekf_predict_timing.append(time.time() - start_time)
@@ -173,6 +180,7 @@ with AnyReader([Path(path_to_bag)]) as reader:
                                             accel = linear_accel)
                 
                 inEKF_oak_full_traj.imu_callback(imu_measurement)
+                inEKF_oak_full_traj_right.imu_callback(imu_measurement)
                 MEKF_oak_full_traj.imu_callback(imu_measurement)
                 inEKF_oak_full_pose_full_traj.imu_callback(imu_measurement)
 
@@ -196,10 +204,12 @@ with AnyReader([Path(path_to_bag)]) as reader:
                 gps_measurement = gps_add_noise(gps_measurement) # Adding noise to corrupt RTK GPS measurement for testing
 
                 inEKF_sbg_full_traj.gps_callback(gps_measurement)
+                inEKF_sbg_full_traj_right.gps_callback(gps_measurement)
                 MEKF_sbg_full_traj.gps_callback(gps_measurement)
                 inEKF_sbg_full_pose_full_traj.gps_callback(gps_measurement)
 
                 inEKF_oak_full_traj.gps_callback(gps_measurement)
+                inEKF_oak_full_traj_right.gps_callback(gps_measurement)
                 MEKF_oak_full_traj.gps_callback(gps_measurement)
                 inEKF_oak_full_pose_full_traj.gps_callback(gps_measurement)
                                 
@@ -216,23 +226,32 @@ with AnyReader([Path(path_to_bag)]) as reader:
                 heading = msg.true_heading - 180  # Degree
                 heading_acc = msg.true_heading_acc # # 1 sigma True heading estimated accuracy
 
+                pitch_measurement = -1 * msg.pitch - 3.94
+                pitch_acc = msg.pitch_acc
+
                 heading_meas = HeadingMeasurement(timestamp_sec=msg.header.stamp.sec,
                                                         timestamp_nsec=msg.header.stamp.nanosec,
                                                         heading=np.deg2rad(heading),
-                                                        heading_cov=config_params_sbg.heading_noise_var)
+                                                        # heading_cov=config_params_sbg.heading_noise_var,
+                                                        heading_cov=np.deg2rad(heading_acc)**2,
+                                                        pitch=np.deg2rad(pitch_measurement),
+                                                        pitch_cov=np.deg2rad(pitch_acc)**2)
                 
-                heading_meas = heading_add_noise(heading_meas)
+                # heading_meas = heading_add_noise(heading_meas)
 
+                # The right-invariant configurations omit heading updates, as in the single-trajectory experiment.
                 start_time = time.time()
-                inEKF_sbg_full_traj.heading_callback(heading_meas)
+                inEKF_sbg_full_traj.heading_callback_vec(heading_meas)
+                inEKF_sbg_full_traj_right.heading_callback_vec(heading_meas)
                 inekf_heading_update_timing.append(time.time() - start_time)
 
                 start_time = time.time()
-                MEKF_sbg_full_traj.heading_callback(heading_meas)
+                MEKF_sbg_full_traj.heading_callback_mekf_euler(heading_meas)
                 mekf_heading_update_timing.append(time.time() - start_time)
 
-                inEKF_oak_full_traj.heading_callback(heading_meas)
-                MEKF_oak_full_traj.heading_callback(heading_meas)
+                inEKF_oak_full_traj.heading_callback_vec(heading_meas)
+                inEKF_oak_full_traj_right.heading_callback_vec(heading_meas)
+                MEKF_oak_full_traj.heading_callback_mekf_euler(heading_meas)
 
                 if last_horizon_observation is not None:
                     start_time = time.time()
@@ -254,15 +273,19 @@ with AnyReader([Path(path_to_bag)]) as reader:
                 if horizon_observation.valid:
                     last_horizon_observation = horizon_observation
                     start_time = time.time()
-                    inEKF_sbg_full_traj.image_callback(horizon_observation)
+                    inEKF_sbg_full_traj.image_callback_gravity_vec(horizon_observation)
                     inekf_rp_update_timing.append(time.time() - start_time)
+                    start_time = time.time()
+                    inEKF_sbg_full_traj_right.image_callback_gravity_vec(horizon_observation)
+                    inekf_right_rp_update_timing.append(time.time() - start_time)
 
                     start_time = time.time()
-                    MEKF_sbg_full_traj.image_callback(horizon_observation)
+                    MEKF_sbg_full_traj.image_callback_mekf_euler(horizon_observation)
                     mekf_rp_update_timing.append(time.time() - start_time)
 
-                    inEKF_oak_full_traj.image_callback(horizon_observation)
-                    MEKF_oak_full_traj.image_callback(horizon_observation)
+                    inEKF_oak_full_traj.image_callback_gravity_vec(horizon_observation)
+                    inEKF_oak_full_traj_right.image_callback_gravity_vec(horizon_observation)
+                    MEKF_oak_full_traj.image_callback_mekf_euler(horizon_observation)
 
                 else:
                     last_horizon_observation = None
@@ -295,9 +318,11 @@ convergence_period_seconds = 20
 
 # Metrics are mean, std, and max of xy position error, z position error, roll error, pitch error, and yaw error
 sbg_inekf_metrics = get_filter_error_metrics(inEKF_sbg_full_traj, gt_poses, timeoffset=convergence_period_seconds)
+sbg_inekf_right_metrics = get_filter_error_metrics(inEKF_sbg_full_traj_right, gt_poses, timeoffset=convergence_period_seconds)
 sbg_mekf_metrics = get_filter_error_metrics(MEKF_sbg_full_traj, gt_poses, timeoffset=convergence_period_seconds)
 sbg_inekf_full_pose_metrics = get_filter_error_metrics(inEKF_sbg_full_pose_full_traj, gt_poses, timeoffset=convergence_period_seconds)
 oak_inekf_metrics = get_filter_error_metrics(inEKF_oak_full_traj, gt_poses, timeoffset=convergence_period_seconds)
+oak_inekf_right_metrics = get_filter_error_metrics(inEKF_oak_full_traj_right, gt_poses, timeoffset=convergence_period_seconds)
 oak_mekf_metrics = get_filter_error_metrics(MEKF_oak_full_traj, gt_poses, timeoffset=convergence_period_seconds)
 oak_inekf_full_pose_metrics = get_filter_error_metrics(inEKF_oak_full_pose_full_traj, gt_poses, timeoffset=convergence_period_seconds) 
 
@@ -318,17 +343,19 @@ columns = [
 # Create a list of the data objects
 raw_data = [
     sbg_inekf_metrics,
+    sbg_inekf_right_metrics,
     sbg_mekf_metrics,
     sbg_inekf_full_pose_metrics,
     oak_inekf_metrics,
+    oak_inekf_right_metrics,
     oak_mekf_metrics,
     oak_inekf_full_pose_metrics
 ]
 
 # Optional: Add names to identify the rows
 filter_names = [
-    "sbg_inekf", "sbg_mekf", "sbg_inekf_full_pose",
-    "oak_inekf", "oak_mekf", "oak_inekf_full_pose"
+    "sbg_inekf", "sbg_inekf_right", "sbg_mekf", "sbg_inekf_full_pose",
+    "oak_inekf", "oak_inekf_right", "oak_mekf", "oak_inekf_full_pose"
 ]
 
 # Create the DataFrame
@@ -346,10 +373,12 @@ plot_figure_6(df, show_plot=False)
 # Save timing data to pickle file
 timing_data = {
     'image_function_timing': image_function_timing,
+    'inekf_right_predict_timing': inekf_right_predict_timing,
     'inekf_predict_timing': inekf_predict_timing,
     'mekf_predict_timing': mekf_predict_timing,
     'inekf_heading_update_timing': inekf_heading_update_timing,
     'mekf_heading_update_timing': mekf_heading_update_timing,
+    'inekf_right_rp_update_timing': inekf_right_rp_update_timing,
     'inekf_rp_update_timing': inekf_rp_update_timing,
     'mekf_rp_update_timing': mekf_rp_update_timing,
     'inekf_full_pose_update_timing': inekf_full_pose_update_timing,
@@ -358,9 +387,22 @@ timing_data = {
 with open('figure_data/timing_data.pkl', 'wb') as f:
     pickle.dump(timing_data, f)
 
-plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predict_timing, inekf_heading_update_timing, mekf_heading_update_timing, inekf_rp_update_timing, mekf_rp_update_timing, inekf_full_pose_update_timing, show=True)
+plot_figure_8_timing(**timing_data, show=True)
 
+# Combine the three statistics for each quantity to keep the terminal table readable.
+summary = pd.DataFrame(index=pd.Index(df["filter_name"], name="Filter"))
+for label, prefix in (
+    ("XY (m)", "pos"),
+    ("Z (m)", "z"),
+    ("Roll (°)", "roll"),
+    ("Pitch (°)", "pitch"),
+    ("Yaw (°)", "yaw"),
+):
+    stats = df[[f"{prefix}_mean", f"{prefix}_std", f"{prefix}_max"]]
+    summary[label] = [
+        f"{mean:.3f} / {std:.3f} / {maximum:.3f}"
+        for mean, std, maximum in stats.itertuples(index=False, name=None)
+    ]
 
-
-
-
+print("\nFilter errors relative to SBG EKF (mean / std dev / max)")
+print(summary.to_string())

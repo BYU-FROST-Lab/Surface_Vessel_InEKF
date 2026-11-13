@@ -145,6 +145,33 @@ class MEKF:
 
         # self.orientation_callback(msg) # moved function call to run filter script
 
+
+    def get_euler_and_E_matrix(self, R_hat: np.ndarray):
+            """
+            Extracts Z-Y-X Euler angles (roll, pitch, yaw) from R_hat and 
+            computes the 3x3 body-rate to Euler-rate Jacobian E(phi_hat, theta_hat).
+            """
+            # Direct extraction from R = R_z(yaw) @ R_y(pitch) @ R_x(roll)
+            # Equivalent to: phi_hat, theta_hat, psi_hat = Rotation.from_matrix(R_hat).as_euler('xyz')
+            phi_hat = np.arctan2(R_hat[2, 1], R_hat[2, 2])
+            theta_hat = -np.arcsin(np.clip(R_hat[2, 0], -1.0, 1.0))
+            psi_hat = np.arctan2(R_hat[1, 0], R_hat[0, 0])
+
+            sp, cp = np.sin(phi_hat), np.cos(phi_hat)
+            st, ct = np.sin(theta_hat), np.cos(theta_hat)
+            
+            # Guard against gimbal lock near +/- 90 deg pitch
+            ct_safe = np.sign(ct) * max(abs(ct), 1e-6) if ct != 0 else 1e-6
+            tt = st / ct_safe
+
+            E = np.array([
+                [1.0, sp * tt,      cp * tt     ],  # Row 0: d(roll)  / d(delta_theta_body)
+                [0.0, cp,          -sp          ],  # Row 1: d(pitch) / d(delta_theta_body)
+                [0.0, sp / ct_safe, cp / ct_safe]   # Row 2: d(yaw)   / d(delta_theta_body)
+            ])
+
+            return phi_hat, theta_hat, psi_hat, E
+
     def get_rot_error_y(self, yaw_bel, yaw_meas):
         R_yaw_error = self.rot_matrix_2d(yaw_bel).T @ self.rot_matrix_2d(yaw_meas)
         error = np.array(logm(R_yaw_error)[0,1]) # might need to switch this!
@@ -575,6 +602,73 @@ class MEKF:
         self.sigmas[-1] = (np.eye(15) - K @ H) @ self.sigma # Update the covariance
         
         return rpy
+
+    def image_callback_mekf_euler(self, rp_measurement: HorizonObservation):
+            R_hat = self.mu[:3, :3]
+            phi_hat, theta_hat, _, E = self.get_euler_and_E_matrix(R_hat)
+
+            # 1. 2x1 Innovation: [roll_err, pitch_err]^T wrapped to [-pi, pi]
+            v_roll = (rp_measurement.roll_rad - phi_hat + np.pi) % (2 * np.pi) - np.pi
+            v_pitch = (rp_measurement.pitch_rad - theta_hat + np.pi) % (2 * np.pi) - np.pi
+            V = np.array([[v_roll],
+                        [v_pitch]]) # Shape: (2, 1)
+
+            # 2. 2x15 Measurement Jacobian H (Rows 0 and 1 of E)
+            H = np.zeros((2, 15))
+            H[:, :3] = E[0:2, :]  # [Row 0 (roll), Row 1 (pitch)]
+
+            # 3. 2x2 Measurement Covariance & Kalman Gain
+            R_cov = np.diag([rp_measurement.roll_var, rp_measurement.pitch_var])
+            
+            S = H @ self.sigma @ H.T + R_cov          # Shape: (2, 2) - naturally full rank!
+            K = self.sigma @ H.T @ np.linalg.inv(S)   # Shape: (15, 2)
+            K_V = (K @ V).squeeze()                   # Shape: (15,)
+
+            # 4. Standard Decoupled MEKF State Update (SO(3) x R^6)
+            self.mus[-1][:3, :3] = R_hat @ expm(self.sys.cross(K_V[:3]))
+            self.mus[-1][:3, 3]  = self.mu[:3, 3] + K_V[3:6] # Velocity
+            self.mus[-1][:3, 4]  = self.mu[:3, 4] + K_V[6:9] # Position
+
+            if self.est_bias:
+                self.biases[-1] = self.bias + K_V[9:].reshape((2, 3))
+
+            # 5. Covariance Update
+            self.sigmas[-1] = (np.eye(15) - K @ H) @ self.sigma
+            return v_roll, v_pitch
+
+    def heading_callback_mekf_euler(self, heading_measurement: HeadingMeasurement):
+        R_hat = self.mu[:3, :3]
+        _, theta_hat, psi_hat, E = self.get_euler_and_E_matrix(R_hat)
+
+        # 1. 2x1 Innovation: [yaw_err, pitch_err]^T wrapped to [-pi, pi]
+        v_yaw = (heading_measurement.heading - psi_hat + np.pi) % (2 * np.pi) - np.pi
+        v_pitch = (heading_measurement.pitch - theta_hat + np.pi) % (2 * np.pi) - np.pi
+        V = np.array([[v_yaw],
+                      [v_pitch]]) # Shape: (2, 1)
+
+        # 2. 2x15 Measurement Jacobian H (Row 2 for yaw, Row 1 for pitch)
+        H = np.zeros((2, 15))
+        H[0, :3] = E[2, :]  # Row 2: d(yaw) / d(delta_theta_body)
+        H[1, :3] = E[1, :]  # Row 1: d(pitch) / d(delta_theta_body)
+
+        # 3. 2x2 Measurement Covariance & Kalman Gain
+        R_cov = np.diag([heading_measurement.heading_cov, heading_measurement.pitch_cov])
+
+        S = H @ self.sigma @ H.T + R_cov          # Shape: (2, 2)
+        K = self.sigma @ H.T @ np.linalg.inv(S)   # Shape: (15, 2)
+        K_V = (K @ V).squeeze()                   # Shape: (15,)
+
+        # 4. Standard Decoupled MEKF State Update (SO(3) x R^6)
+        self.mus[-1][:3, :3] = R_hat @ expm(self.sys.cross(K_V[:3]))
+        self.mus[-1][:3, 3]  = self.mu[:3, 3] + K_V[3:6] # Velocity
+        self.mus[-1][:3, 4]  = self.mu[:3, 4] + K_V[6:9] # Position
+
+        if self.est_bias:
+            self.biases[-1] = self.bias + K_V[9:].reshape((2, 3))
+
+        # 5. Covariance Update
+        self.sigmas[-1] = (np.eye(15) - K @ H) @ self.sigma
+        return v_yaw, v_pitch
 
 def main(args=None):    
     pass

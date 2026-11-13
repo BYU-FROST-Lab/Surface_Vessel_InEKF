@@ -50,7 +50,9 @@ def heading_add_noise(heading_measurement):
         timestamp_sec=heading_measurement.timestamp_sec,
         timestamp_nsec=heading_measurement.timestamp_nsec,
         heading=noisy_heading,
-        heading_cov=heading_measurement.heading_cov
+        heading_cov=heading_measurement.heading_cov,
+        pitch=heading_measurement.pitch,
+        pitch_cov=heading_measurement.pitch_cov
     )
     return noisy_heading_measurement
 
@@ -665,11 +667,18 @@ def plot_figure_6(df, show_plot=True):
         "Yaw": ["yaw_mean", "yaw_std", "yaw_max"]
     }
 
-    # Filter names for the legend
-    filter_display_names = [
-        "SBG InEKF", "SBG MEKF", "SBG InEKF FO", 
-        "OAK InEKF", "OAK MEKF", "OAK InEKF FO"
-    ]
+    filter_labels = {
+        "sbg_inekf": "SBG InEKF (L)",
+        "oak_inekf": "OAK InEKF (L)",
+        "sbg_inekf_right": "SBG InEKF (R)",
+        "oak_inekf_right": "OAK InEKF (R)",
+        "sbg_mekf": "SBG MEKF",
+        "oak_mekf": "OAK MEKF",
+        "sbg_inekf_full_pose": "SBG InEKF FO",
+        "oak_inekf_full_pose": "OAK InEKF FO",
+    }
+    filter_names = df["filter_name"].tolist()
+    filter_display_names = [filter_labels[name] for name in filter_names]
     colors = sns.color_palette("colorblind", n_colors=len(filter_display_names))
 
     # --- Create Figure & GridSpec ---
@@ -701,7 +710,7 @@ def plot_figure_6(df, show_plot=True):
         
         # Axis Scaling & Labels
         if state_name in ["Roll", "Pitch", "Yaw"]:
-            ax.set_ylim(0, 3.0)
+            ax.set_ylim(0, max(3.0, 1.05 * max(maxs.max(), (means + stds).max())))
             
             # 1. Define all positions where you want a "tick" line
             tick_positions = np.arange(0, 3.5, 0.5)
@@ -709,13 +718,14 @@ def plot_figure_6(df, show_plot=True):
             # 2. Create labels: only show the number if it's an integer, otherwise ""
             tick_labels = [f"{int(x)}" if x % 1 == 0 else "" for x in tick_positions]
             
-            ax.set_yticks(tick_positions)
-            ax.set_yticklabels(tick_labels)
+            if ax.get_ylim()[1] == 3.0:
+                ax.set_yticks(tick_positions)
+                ax.set_yticklabels(tick_labels)
             if i == 2:
                 ax.set_ylabel('degrees', fontsize=10)
         else:
             # Position scaling (adjust if your max position error is > 6m)
-            ax.set_ylim(0, 5.5) 
+            ax.set_ylim(0, max(5.5, 1.05 * max(maxs.max(), (means + stds).max())))
             if i == 0:
                 ax.set_ylabel('meters', fontsize=10)
 
@@ -728,8 +738,8 @@ def plot_figure_6(df, show_plot=True):
         for j in range(len(filter_display_names))
     ]
 
-    new_order = [0, 3, 1, 4, 2, 5]  # Desired order of filters in the legend
-    legend_elements = [legend_elements[i] for i in new_order]
+    legend_by_name = dict(zip(filter_names, legend_elements))
+    legend_elements = [legend_by_name[name] for name in filter_labels if name in legend_by_name]
     
     # Add the Max Error 'x' to the legend
     legend_elements.append(Line2D([0], [0], marker='x', color='red', label='Max Error', 
@@ -740,11 +750,98 @@ def plot_figure_6(df, show_plot=True):
                ncol=4, fontsize=10, frameon=False, handletextpad=0.5, columnspacing=1.0)
 
     # Adjust layout to make room for labels and legend
-    plt.subplots_adjust(left=0.07, right=0.98, top=0.85, bottom=0.22, wspace=0.45)
+    plt.subplots_adjust(left=0.07, right=0.98, top=0.85, bottom=0.29, wspace=0.45)
     
     plt.savefig("figures/filter_comparison_bars.pdf", bbox_inches='tight')
     if show_plot:
         plt.show()
+
+def report_real_world_convergence(
+    filter_runs, reference_poses, reference_timestamps,
+    angle_tol_deg=5.0, position_tol_m=1.0, dwell_s=0.5,
+):
+    """Report settling statistics and plot signed errors over completed restarts."""
+    if not filter_runs:
+        print("No completed restarts to evaluate.")
+        return
+
+    names = list(filter_runs[0])
+    fig, axes = plt.subplots(
+        len(names), 6, figsize=(12, 1.35 * len(names)), sharex=True, sharey="col",
+        layout="constrained", squeeze=False,
+    )
+    colors = sns.color_palette("colorblind", len(names))
+
+    settling_times = {name: [] for name in filter_runs[0]}
+    final_errors = {name: [] for name in filter_runs[0]}
+    for filters, ref, ref_times in zip(filter_runs, reference_poses, reference_timestamps):
+        ref_angles = np.unwrap(
+            Rotation.from_matrix(ref[:, :3, :3]).as_euler("xyz"), axis=0
+        )
+        ref_states = np.column_stack((np.rad2deg(ref_angles), ref[:, :3, 4]))
+        for row, name in enumerate(names):
+            estimator = filters[name]
+            times = np.asarray(estimator.timestamps)
+            overlap = (times >= ref_times[0]) & (times <= ref_times[-1])
+            if not overlap.any():
+                continue
+
+            poses = np.asarray(estimator.mus)[overlap]
+            angles = Rotation.from_matrix(poses[:, :3, :3]).as_euler("xyz", degrees=True)
+            states = np.column_stack((angles, poses[:, :3, 4]))
+            aligned_reference = np.column_stack([
+                np.interp(times[overlap], ref_times, state) for state in ref_states.T
+            ])
+            errors = states - aligned_reference
+            errors[:, :3] = (errors[:, :3] + 180) % 360 - 180
+            absolute_errors = np.abs(errors)
+            final_errors[name].append(absolute_errors[-1])
+
+            within = (absolute_errors <= [angle_tol_deg] * 3 + [position_tol_m] * 3).all(axis=1)
+            elapsed = times[overlap] - times[0]
+            angle_errors = errors[:, :3]
+            angle_errors[1:][np.abs(np.diff(angle_errors, axis=0)) > 180] = np.nan
+            for ax, error in zip(axes[row], errors.T):
+                ax.plot(elapsed, error, color=colors[row], alpha=0.4, linewidth=0.7)
+
+            # A settled run stays within tolerance through its last matched sample.
+            violations = np.flatnonzero(~within)
+            start = violations[-1] + 1 if violations.size else 0
+            if start < len(elapsed) and elapsed[-1] - elapsed[start] >= dwell_s:
+                settling_times[name].append(elapsed[start])
+
+    rows = []
+    for name, times in settling_times.items():
+        errors = final_errors[name]
+        median_errors = np.median(errors, axis=0) if errors else [np.nan] * 6
+        rows.append([
+            name, len(errors), len(times), len(times) / len(filter_runs),
+            np.median(times) if times else np.nan, *median_errors,
+        ])
+
+    summary = pd.DataFrame(rows, columns=[
+        "Filter", "Matched", "Settled", "Rate", "Median settle (s)",
+        "Roll (°)", "Pitch (°)", "Yaw (°)", "X (m)", "Y (m)", "Z (m)",
+    ])
+    print(f"\nConvergence against SBG EKF across {len(filter_runs)} restarts")
+    print(f"Settled if each angle stays within {angle_tol_deg:g}° and each position axis "
+          f"within {position_tol_m:g} m through the last matched sample for at least {dwell_s:g} s.")
+    print("State columns show median final absolute error. Median settling time uses settled runs.")
+    print(summary.to_string(index=False, na_rep="—", formatters={"Rate": "{:.0%}".format},
+                            float_format="{:.3f}".format))
+    for row, name in enumerate(names):
+        axes[row, 0].set_ylabel(name, fontsize=9)
+        for ax in axes[row]:
+            ax.axhline(0, color="0.35", linestyle="--", linewidth=0.7)
+            ax.grid(alpha=0.25)
+    for ax, label in zip(axes[0], summary.columns[-6:]):
+        ax.set_title(label)
+    fig.suptitle("Pose convergence relative to SBG EKF")
+    fig.supxlabel("Time since filter initialization (s)")
+    fig.savefig("figures/real_world_state_convergence.pdf")
+    plt.show()
+    return summary
+
 
 def plot_figure_7_rw_convergence(sbg_inekf_mus, oak_inekf_mus, sbg_mekf_mus, oak_mekf_mus, 
                                  gt_poses, sbg_timestamps, oak_timestamps, gt_timestamps, show=True):
@@ -859,7 +956,12 @@ def prune_outliers(data, std_devs=3):
     # Boolean mask for values within the range
     return data[np.abs(data - mean) <= (std_devs * std)]
 
-def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predict_timing, inekf_heading_update_timing, mekf_heading_update_timing, inekf_rp_update_timing, mekf_rp_update_timing, inekf_full_pose_update_timing, show=True):    
+def plot_figure_8_timing(
+    image_function_timing, inekf_predict_timing, mekf_predict_timing,
+    inekf_heading_update_timing, mekf_heading_update_timing,
+    inekf_rp_update_timing, mekf_rp_update_timing, inekf_full_pose_update_timing,
+    show=True, *, inekf_right_predict_timing=(), inekf_right_rp_update_timing=(),
+):
     print("Timing Results (s) for roll pitch estimation from Horizon:")
     print(f"Average time for image callback function was {np.mean(image_function_timing)*1000:.4f} ms, with a standard deviation of {np.std(image_function_timing)*1000:.4f} ms over {len(image_function_timing)} runs.")
     print(f"This equates to an average frequency of {1/np.mean(image_function_timing):.2f} Hz for the image processing callback.")
@@ -873,18 +975,23 @@ def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predi
     
     # Structure data
     groups = [
-        ('Predict', 'InEKF', inekf_predict_timing),
+        ('Predict', 'InEKF (L)', inekf_predict_timing),
         ('Predict', 'MEKF', mekf_predict_timing),
-        ('Heading\nUpdate', 'InEKF', inekf_heading_update_timing),
+        ('Heading\nUpdate', 'InEKF (L)', inekf_heading_update_timing),
         ('Heading\nUpdate', 'MEKF', mekf_heading_update_timing),
-        ('Roll/Pitch\nUpdate', 'InEKF', inekf_rp_update_timing),
+        ('Roll/Pitch\nUpdate', 'InEKF (L)', inekf_rp_update_timing),
         ('Roll/Pitch\nUpdate', 'MEKF', mekf_rp_update_timing),
-        ('Full Ori.\nUpdate', 'InEKF', inekf_full_pose_update_timing),
+        ('Full Ori.\nUpdate', 'InEKF FO', inekf_full_pose_update_timing),
     ]
 
+    groups.extend([
+        ('Predict', 'InEKF (R)', inekf_right_predict_timing),
+        ('Roll/Pitch\nUpdate', 'InEKF (R)', inekf_right_rp_update_timing),
+    ])
     pruned_groups = [
        (label, model, prune_outliers(timing_data))
         for label, model, timing_data in groups
+        if len(timing_data)
     ]   
 
     for task, filter_type, timings in pruned_groups:
@@ -911,9 +1018,12 @@ def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predi
         y='Time (ms)', 
         hue='Filter', 
         data=df, 
-        split=True, 
+        split=False,
         inner=None, 
-        palette="colorblind",
+        palette=dict(zip(
+            ["InEKF (L)", "MEKF", "InEKF FO", "InEKF (R)"],
+            sns.color_palette("colorblind", 4),
+        )),
         linewidth=0.8,
         cut=0,
         density_norm='width',
@@ -921,12 +1031,7 @@ def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predi
         ax=ax
     )
 
-    new_color = sns.color_palette("colorblind")[2] 
-    ax.collections[6].set_facecolor(new_color)
-
-
-
-    ax.set_ylim(0, 7) 
+    ax.set_ylim(0, max(7, 1.05 * df["Time (ms)"].max()))
 
     ax.set_ylabel("Execution Time (ms)", fontsize=10)
     ax.set_xlabel("", fontsize=8)
@@ -938,12 +1043,7 @@ def plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predi
     plt.yticks(fontsize=10)
     
     # Compact Legend
-    from matplotlib.patches import Patch
-    fo_patch = Patch(facecolor=new_color, edgecolor='black', label='InEKF FO', linewidth=0.7)
-    handles, labels = ax.get_legend_handles_labels()
-    handles.append(fo_patch)
-    labels.append("InEKF FO")
-    ax.legend(handles=handles, labels=labels, loc='upper right', bbox_to_anchor=(1.01, 1.02), frameon=True)
+    ax.legend(loc='upper right', fontsize=8, ncol=2, frameon=True)
     plt.tight_layout(pad=0.5)
 
     if show:
@@ -1003,16 +1103,7 @@ if __name__ == "__main__":
         with open("figure_data/timing_data.pkl", "rb") as f:
             timing_data = pkl.load(f)
 
-        image_function_timing = timing_data["image_function_timing"]
-        inekf_predict_timing = timing_data["inekf_predict_timing"]
-        mekf_predict_timing = timing_data["mekf_predict_timing"]
-        inekf_heading_update_timing = timing_data["inekf_heading_update_timing"]
-        mekf_heading_update_timing = timing_data["mekf_heading_update_timing"]
-        inekf_rp_update_timing = timing_data["inekf_rp_update_timing"]
-        mekf_rp_update_timing = timing_data["mekf_rp_update_timing"]
-        inekf_full_pose_update_timing = timing_data["inekf_full_pose_update_timing"]
-    
-        plot_figure_8_timing(image_function_timing, inekf_predict_timing, mekf_predict_timing, inekf_heading_update_timing, mekf_heading_update_timing, inekf_rp_update_timing, mekf_rp_update_timing, inekf_full_pose_update_timing, show=False)
+        plot_figure_8_timing(**timing_data, show=False)
     except Exception as e:
         print(f"Error loading timing data for figure 8: {e}")
         print("Make sure the file 'timing_data.pkl' exists and is in the correct format.")

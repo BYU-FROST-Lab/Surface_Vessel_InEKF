@@ -13,6 +13,8 @@ figure_data/inekf_holoocean_simulation_results.npz
 
 *.webm
 
+*.zip
+
 
 log/
 # Byte-compiled / optimized / DLL files
